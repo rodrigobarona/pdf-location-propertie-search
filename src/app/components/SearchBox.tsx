@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSearchBox, useHits } from "react-instantsearch";
 import { MagnifyingGlassIcon, MapPinIcon } from "@heroicons/react/24/outline";
-import type { LocationDocument } from "../types/typesense";
+import type { LocationDocument } from "@/app/types/typesense";
 
 interface SearchBoxProps {
   placeholder?: string;
@@ -173,7 +173,6 @@ export default function SearchBox({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-label="Search locations"
-          aria-expanded={showSuggestions}
           aria-controls={showSuggestions ? "location-suggestions" : undefined}
           aria-activedescendant={
             activeIndex >= 0 ? `location-item-${activeIndex}` : undefined
@@ -193,12 +192,7 @@ export default function SearchBox({
           className="absolute z-[1000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-96 overflow-y-auto"
           tabIndex={-1}
         >
-          <ul
-            ref={listRef}
-            role="listbox"
-            aria-label="Search suggestions"
-            className="py-2"
-          >
+          <ul ref={listRef} aria-label="Search suggestions" className="py-2">
             {hits.map((hit, index) => {
               const locationName = getDisplayName(hit);
               const locationType = getLocationTypeLabel(hit);
@@ -218,6 +212,12 @@ export default function SearchBox({
                     isActive ? "bg-gray-100" : ""
                   } hover:bg-gray-100`}
                   onClick={() => handleSelectLocation(hit)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      handleSelectLocation(hit);
+                    }
+                  }}
+                  tabIndex={0}
                 >
                   <div className="flex items-center">
                     <MapPinIcon

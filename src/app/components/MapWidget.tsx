@@ -3,23 +3,36 @@
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import type { LocationDocument } from "../types/typesense";
+import type { LocationDocument } from "@/app/types/typesense";
 import L from "leaflet";
 
-// Fix Leaflet icon issues
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
-});
+// Define GeoJSON types
+interface GeoJSONGeometry {
+  type:
+    | "Point"
+    | "LineString"
+    | "Polygon"
+    | "MultiPoint"
+    | "MultiLineString"
+    | "MultiPolygon"
+    | "GeometryCollection";
+  coordinates: number[] | number[][] | number[][][] | number[][][][];
+}
+
+interface GeoJSONFeature {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: GeoJSONGeometry;
+}
 
 // Helper function to create a valid GeoJSON object
-function createValidGeoJSON(coordinates: any, geometryType = "Polygon") {
+function createValidGeoJSON(
+  coordinates: unknown,
+  geometryType = "Polygon"
+): GeoJSONGeometry {
   // If it's already a valid GeoJSON with type property, return it
-  if (coordinates && coordinates.type) {
-    return coordinates;
+  if (coordinates && typeof coordinates === "object" && "type" in coordinates) {
+    return coordinates as GeoJSONGeometry;
   }
 
   // Check if coordinates is an array
@@ -41,7 +54,7 @@ function createValidGeoJSON(coordinates: any, geometryType = "Polygon") {
   }
 
   // Determine the geometry type based on the structure of coordinates
-  let type = geometryType || "Polygon";
+  let type = (geometryType as GeoJSONGeometry["type"]) || "Polygon";
 
   // If no explicit type is provided, try to infer it from the coordinates structure
   if (!geometryType) {
@@ -132,8 +145,8 @@ interface MapWidgetProps {
 // Main map widget
 const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [isMounted, setIsMounted] = useState(false);
-  const [geoJsonData, setGeoJsonData] = useState<any>(null);
-  const geoJsonLayerRef = useRef<any>(null);
+  const [geoJsonData, setGeoJsonData] = useState<GeoJSONFeature | null>(null);
+  const geoJsonLayerRef = useRef<L.GeoJSON | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -152,7 +165,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         );
 
         // Create a proper GeoJSON feature
-        const geoJsonFeature = {
+        const geoJsonFeature: GeoJSONFeature = {
           type: "Feature",
           properties: {
             name:
@@ -181,7 +194,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     }
   }, [locationResult]);
 
-  const onEachFeature = (feature: any, layer: any) => {
+  const onEachFeature = (feature: GeoJSONFeature, layer: L.Layer) => {
     if (feature.properties) {
       const { name, type } = feature.properties;
       const popupContent = `
@@ -227,7 +240,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             fillOpacity: 0.35,
           })}
           onEachFeature={onEachFeature}
-          ref={geoJsonLayerRef}
+          ref={geoJsonLayerRef as React.RefObject<L.GeoJSON>}
         />
       )}
 

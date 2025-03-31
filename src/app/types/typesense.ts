@@ -39,16 +39,16 @@ export interface PropertyDocument {
 }
 
 export interface TypesenseSearchResults<T> {
-  facet_counts: Record<string, any>;
+  facet_counts: Record<string, unknown>;
   found: number;
   hits: Array<{
     document: T;
-    highlights: Record<string, any>;
+    highlights: Record<string, unknown>;
     text_match: number;
   }>;
   out_of: number;
   page: number;
-  request_params: Record<string, any>;
+  request_params: Record<string, unknown>;
   search_time_ms: number;
   __isArtificial?: boolean;
   query?: string;
