@@ -1,0 +1,30 @@
+{
+  "document": {
+    "coordinates_json": "[[[[-8.124,40.7336],[-8.1162,40.7352],[-8.1123,40.7338],[-8.1096,40.7292],[-8.1069,40.7306],[-8.1023,40.7293],[-8.0978,40.7324],[-8.098,40.7296],[-8.0946,40.728],[-8.0863,40.7176],[-8.0934,40.715],[-8.1135,40.7145],[-8.1148,40.7124],[-8.119,40.718],[-8.1229,40.7193],[-8.1254,40.7233],[-8.1292,40.7248],[-8.1276,40.7285],[-8.1247,40.7302],[-8.124,40.7336]]]]",
+    "country": "Portugal",
+    "engtype_3": "Parish",
+    "geometry_type": "MultiPolygon",
+    "gid_0": "PRT",
+    "gid_1": "PRT.20_1",
+    "gid_2": "PRT.20.24_1",
+    "gid_3": "PRT.20.24.12_1",
+    "id": "3_4258",
+    "level": 3,
+    "name_1": "Viseu",
+    "name_2": "Vouzela",
+    "name_3": "Vouzela",
+    "type_3": "Parish"
+  },
+  "highlight": {},
+  "highlights": [],
+  "text_match": 100,
+  "text_match_info": {
+    "best_field_score": "0",
+    "best_field_weight": 12,
+    "fields_matched": 4,
+    "num_tokens_dropped": 1,
+    "score": "100",
+    "tokens_matched": 0,
+    "typo_prefix_score": 255
+  }
+}

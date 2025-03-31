@@ -1,0 +1,460 @@
+{
+  "document": {
+    "_geoloc": [38.81251632, -9.2779875],
+    "address": "Alameda Sr. da Serra",
+    "alternate_zone": "Belas Clube de Campo",
+    "areas": [
+      {
+        "category": "Arrecadação"
+      },
+      {
+        "area": 12.03,
+        "category": "Varanda"
+      },
+      {
+        "category": "Estacionamento"
+      },
+      {
+        "area": 5.6,
+        "category": "Casa de Banho"
+      },
+      {
+        "area": 15.31,
+        "category": "Varanda"
+      },
+      {
+        "area": 3.9,
+        "category": "Corredor"
+      },
+      {
+        "area": 15.86,
+        "category": "Cozinha"
+      },
+      {
+        "category": "Estacionamento"
+      },
+      {
+        "area": 37.93,
+        "category": "Sala"
+      },
+      {
+        "area": 13.06,
+        "category": "Quarto"
+      },
+      {
+        "area": 17.15,
+        "category": "Quarto"
+      },
+      {
+        "area": 3.71,
+        "category": "Casa de Banho"
+      },
+      {
+        "area": 3.81,
+        "category": "Hall"
+      },
+      {
+        "area": 3.98,
+        "category": "Outra"
+      }
+    ],
+    "availability_id": "disponivel",
+    "bathrooms": 2,
+    "business_type_id": "sale",
+    "category_hierarchy": [
+      {
+        "lvl0": "Apartamento"
+      }
+    ],
+    "category_hierarchy_en": [
+      {
+        "lvl0": "Apartment"
+      }
+    ],
+    "category_hierarchy_fr": [
+      {
+        "lvl0": "Appartement"
+      }
+    ],
+    "category_id": "apartment",
+    "category_name": "Apartamento",
+    "category_name_en": "Apartment",
+    "category_name_fr": "Appartement",
+    "code": "PF30422",
+    "county": "Lisboa",
+    "county_id": "lisboa",
+    "cover_photo": "https://static.portadafrente.com/PF30385/BELASC~1_1681903380342.JPG",
+    "description": "Native é a escolha natural para quem deseja mais espaço, conseguindo o equilíbrio perfeito entre espaços verdes e modernidade. Localizado no Belas Clube de Campo, junto a Lisboa, Oeiras e Cascais, é o destino perfeito para que a sua família viva em plena natureza, mas perto de tudo. \r\n \r\n•\t20 minutos. do centro de Lisboa\r\n•\t20 minutos das praias da Linha de Cascais\r\n•\t15 minutos do Parque das Nações\r\n \r\nÀ porta de sua casa encontra a floresta, uma escola preparada para o futuro, o campo de golfe e os campos de padel, a piscina, o healthclub, um co-working, os melhores sabores da gastronomia e todos os serviços. Porque a educação, a saúde, a inspiração e o entretenimento da sua família são naturais do campo. Mesmo à porta da cidade. \r\n \r\n>> Jardim-Escola João de Deus de Belas \r\n \r\nUma escola multilingue, multicultural e aberta ao mundo. Do berçário ao 6º ano, mesmo no Belas Clube de Campo. Para que os seus filhos possam caminhar a pé até à escola, em total segurança. \r\n \r\n>> Trilhos, Golfe e Padel \r\n \r\nEm plena natureza, encontra tudo para que se mantenha ativo: das caminhadas na floresta ao campo de golfe, passando pelos campos de padel.\r\n \r\n>> Restaurante e Café \r\n \r\nNo restaurante do clubhouse encontra os sabores portugueses revisitados para um almoço em família ou um jantar de amigos. O café no campo convida a pequenos-almoços e lanches sem hora marcada. \r\n \r\n>> Hub: um espaço de partilha para todos\r\n \r\n→ Co-working entre a natureza e a tecnologia; \r\n→ Ponto pick & collect para encomendas online; \r\n→ Kids’ club para muita animação; \r\n→ Co-kitchen para partilhar sabores; \r\n→ Ginásio; \r\n→ Sala multiusos. \r\n \r\nA NATUREZA DA SUA FAMÍLIA INSPIRA A ENERGIA DA SUA CASA\r\n \r\n:: APARTAMENTOS T1 A T4 :: ORION & SOUL\r\n \r\nInseridos entre áreas verdes e todos os serviços de que precisa. Com espaço para fazer o seu homeoffice, as amplas janelas convidam a luz a entrar, para viver em pleno. O edifício é leve e delicado, com linhas modernas e tons ligados à paisagem. Os apartamentos dispõem da máxima otimização do espaço, reduzindo as áreas de circulação, mas mantendo a diferenciação entre as zonas de dia e de noite e criando muita arrumação.\r\n \r\n:: TOWNHOUSES T4\r\n \r\nDesign contemporâneo, piscina e muita luz natural marcam o novo espaço para a sua família viver e crescer com a natureza e a cidade mesmo à porta de casa. Com uma linguagem delicada, contemporânea e intemporal de linhas claras e tons ligados à paisagem, cada townhouse convida à permanência e ao refúgio. \r\n \r\n:: PLOTS / LOTES\r\n \r\nA sua família é única e merece uma casa única. Escolha o seu lote e transforme os seus sonhos em realidade numa casa totalmente pensada e desenvolvida à sua medida. \r\n  \r\nComercialização Exclusiva: Porta da Frente Christie’s\r\nPromoção: Kronos\r\nProjeto de arquitetura: Capinha Lopes e Miguel Saraiva",
+    "description_en": "Native is the natural choice for those who want more space, achieving the perfect balance between green spaces and modernity. Located in Belas Clube de Campo, near Lisbon, Oeiras and Cascais, it is the perfect destination for your family to live in the midst of nature, but close to everything. \r\n \r\n- 20 minutes from the centre of Lisbon\r\n- 20 minutes from the beaches of the Cascais line\r\n- 15 minutes from Parque das Nações\r\n \r\nAt your doorstep you will find the forest, a school prepared for the future, the golf and paddle tennis courts, the swimming pool, the healthclub, co-working, the best flavours of gastronomy and all the services. Because your family's education, health, inspiration and entertainment come naturally from the countryside. Right on the city's doorstep. \r\n \r\n>> João de Deus de Belas Nursery School \r\n \r\nA multilingual, multicultural school, open to the world. From nursery to sixth grade, right in Belas Clube de Campo. So that your children can walk to school in complete safety. \r\n \r\n>> Trails, Golf and Padel \r\n \r\nIn the middle of nature, you will find everything to keep you active: from walks in the forest to the golf course, as well as paddle tennis courts.\r\n \r\n>> Restaurant and Café \r\n \r\nIn the clubhouse restaurant you will find Portuguese flavours revisited for a family lunch or a dinner with friends. The café on the course invites you to breakfasts and snacks without an appointment. \r\n \r\n>> Hub: a sharing space for everyone\r\n \r\n→ Co-working between nature and technology; \r\n→ Pick & collect point for online ordering; \r\n→ Kids' club for lots of entertainment; \r\n→ Co-kitchen for sharing flavours; \r\n→ Gymnasium; \r\n→ Multi-purpose room. \r\n \r\nTHE NATURE OF YOUR FAMILY INSPIRES THE ENERGY OF YOUR HOME\r\n \r\n:: FLATS 1 TO 4 BEDROOMS :: ORION & SOUL\r\n \r\nInserted between green areas and all the services you need. With space for your home office, the large windows invite the light to come in, to live in full. The building is light and delicate, with modern lines and tones linked to the landscape. The flats have the maximum optimization of space, reducing the circulation areas, but maintaining the differentiation between day and night zones and creating plenty of storage.\r\n \r\n:: TOWNHOUSES T4\r\n \r\nContemporary design, swimming pool and plenty of natural light mark the new space for your family to live and grow with nature and the city on your doorstep. With a delicate, contemporary and timeless language of clear lines and tones linked to the landscape, each townhouse invites you to stay and take refuge. \r\n \r\n:: PLOTS / LOTS\r\n \r\nYour family is unique and deserves a unique home. Choose your plot and make your dreams come true in a house totally designed and developed to your measure. \r\n  \r\nExclusive Marketing: Porta da Frente Christie's \r\nDevelopment: Kronos\r\nArchitecture Project: Capinha Lopes e Miguel Saraiva",
+    "description_fr": "Native est le choix naturel pour ceux qui veulent plus d'espace, atteignant l'équilibre parfait entre les espaces verts et la modernité. Situé à Belas Clube de Campo, près de Lisbonne, Oeiras et Cascais, c'est la destination idéale pour votre famille qui souhaite vivre en pleine nature, mais à proximité de tout. \r\n \r\n- 20 minutes du centre de Lisbonne\r\n- 20 minutes des plages de la ligne de Cascais\r\n- 15 minutes du Parque das Nações\r\n \r\nÀ votre porte, vous trouverez la forêt, une école préparée pour l'avenir, les terrains de golf et de paddle, la piscine, le club de santé, le co-working, les meilleures saveurs de la gastronomie et tous les services. Parce que l'éducation, la santé, l'inspiration et le divertissement de votre famille viennent naturellement de la campagne. Aux portes de la ville. \r\n \r\n>> École maternelle João de Deus de Belas \r\n \r\nUne école multilingue et multiculturelle, ouverte sur le monde. De la maternelle à la sixième année, à Belas Clube de Campo. Pour que vos enfants puissent se rendre à l'école à pied en toute sécurité. \r\n \r\n>> Sentiers, golf et padel \r\n \r\nEn pleine nature, vous trouverez tout ce qu'il faut pour rester actif : des promenades en forêt au terrain de golf, en passant par les courts de padel.\r\n \r\n>> Restaurant et café \r\n \r\nDans le restaurant du clubhouse, vous trouverez des saveurs portugaises revisitées pour un déjeuner en famille ou un dîner entre amis. Le café sur le parcours vous invite à des petits déjeuners et des goûters sans rendez-vous. \r\n \r\n>> Hub : un espace de partage pour tous\r\n \r\n→ Co-working entre nature et technologie ; \r\n→ Point de retrait pour les commandes en ligne ; \r\n→ Club pour enfants avec de nombreux divertissements ; \r\n→ Co-cuisine pour partager les saveurs ; \r\n→ Gymnase ; \r\n→ Salle polyvalente. \r\n \r\nLA NATURE DE VOTRE FAMILLE INSPIRE L'ÉNERGIE DE VOTRE MAISON\r\n \r\n: : APPARTEMENTS DE 1 À 4 CHAMBRES : : ORION & SOUL\r\n \r\nInsérés entre des espaces verts et tous les services dont vous avez besoin. Avec de l'espace pour votre bureau à domicile, les grandes fenêtres invitent la lumière à entrer, à vivre pleinement. Le bâtiment est léger et délicat, avec des lignes modernes et des tons liés au paysage. Les appartements optimisent au maximum l'espace, en réduisant les zones de circulation, mais en maintenant la différenciation entre les zones de jour et de nuit et en créant de nombreux espaces de rangement.\r\n \r\nT4 : MAISONS DE VILLE\r\n \r\nUn design contemporain, une piscine et beaucoup de lumière naturelle marquent le nouvel espace où votre famille peut vivre et grandir avec la nature et la ville à votre porte. Avec un langage délicat, contemporain et intemporel de lignes claires et de tons liés au paysage, chaque maison de ville vous invite à rester et à vous réfugier. \r\n \r\n: : PARCELLES / LOTS\r\n \r\nVotre famille est unique et mérite une maison unique. Choisissez votre terrain et réalisez vos rêves dans une maison entièrement conçue et développée à votre mesure. \r\n  \r\nCommercialisation exclusive : Porta da Frente Christie's \r\nDéveloppement : Kronos\r\nProjet d'architecture : Capinha Lopes e Miguel Saraiva",
+    "development_id": "a0c3Y00000WOcoVQAT",
+    "equipments": [
+      "Banheira",
+      "Cozinha Equipada",
+      "Domótica",
+      "Elevador",
+      "Esquentador",
+      "Exaustor",
+      "Fogão",
+      "Forno",
+      "Frigorífico",
+      "Garagem",
+      "Isolamento Acústico",
+      "Isolamento Térmico",
+      "Jardim",
+      "Máquina de Lavar Louça",
+      "Máquina de Lavar Roupa",
+      "Piscina Privada",
+      "Piso Radiante",
+      "Placa Vitrocerâmica",
+      "Porta Alta Segurança",
+      "Portão Eléctrico",
+      "Pré-instalação ar condicionado",
+      "Pré-instalação de aquecimento central",
+      "Roupeiros",
+      "Terraço",
+      "Video Porteiro",
+      "Vidros Duplos",
+      "Microondas",
+      "Varanda",
+      "Piscina",
+      "Vista"
+    ],
+    "equipments_en": [
+      "Bathtub",
+      "Equipped kitchen",
+      "Home automation",
+      "Elevator",
+      "Water Heater",
+      "Exhaust",
+      "Stove",
+      "Oven",
+      "Fridge",
+      "Garage",
+      "Acoustic Insulation",
+      "Thermal Insulation",
+      "Garden",
+      "Dishwasher",
+      "Washing Machine",
+      "Private Swimming Pool",
+      "Radiant Floor Heating",
+      "Vitroceramic Cooktop",
+      "High Security Door",
+      "Electric gate",
+      "Pre-installation for air conditioning",
+      "Pre-installed central heating system",
+      "Wardrobes",
+      "Terrace",
+      "Video Doorman",
+      "Double Glazed",
+      "Microwave Oven",
+      "Balcony",
+      "Swimming Pool",
+      "View"
+    ],
+    "equipments_fr": [
+      "Baignoire",
+      "Cuisine équipée",
+      "Automatisation de la maison",
+      "Ascenseur",
+      "Chauffe-eau",
+      "Échappement",
+      "Le fourneau",
+      "Four",
+      "Frigo",
+      "Garage",
+      "Isolation sonore",
+      "Isolation thermique",
+      "Jardin",
+      "Lave-vaisselle",
+      "Machine à laver",
+      "Piscine privée",
+      "Chauffage radiant au sol",
+      "Table de cuisson vitrocéramique",
+      "Porte haute sécurité",
+      "Portail électrique",
+      "Pré-installation pour la climatisation",
+      "Système de chauffage central préinstallé",
+      "Armoires",
+      "Terrasse",
+      "Portier vidéo",
+      "Double vitrage",
+      "Micro-ondes",
+      "Balcon",
+      "Piscine",
+      "Vue"
+    ],
+    "floor": 1,
+    "fraction": "Native Orion | D13",
+    "gross_private_area": 116,
+    "id": "a0c3Y00000WOd05QAD",
+    "investment": ["land_lote"],
+    "is_exclusive": true,
+    "is_investment": true,
+    "is_parent": 0,
+    "languages": ["pt", "en", "fr"],
+    "last_updated": 1743449791,
+    "latitude": 38.81251632,
+    "location_hierarchy": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Área Metropolitana de Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Área Metropolitana de Lisboa > Lisboa",
+        "lvl3": "Área Metropolitana de Lisboa > Área Metropolitana de Lisboa > Lisboa > Lisboa",
+        "lvl4": "Área Metropolitana de Lisboa > Área Metropolitana de Lisboa > Lisboa > Lisboa > Queluz e Belas",
+        "lvl5": "Área Metropolitana de Lisboa > Área Metropolitana de Lisboa > Lisboa > Lisboa > Queluz e Belas > Belas Clube de Campo"
+      }
+    ],
+    "longitude": -9.2779875,
+    "operation": ["buy", "investment"],
+    "outdoor_area": 34,
+    "parent_property_id": "a0c3Y00000WOcoVQAT",
+    "parish": "Queluz e Belas",
+    "parish_hierarchy": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Queluz e Belas"
+      }
+    ],
+    "parish_hierarchy_en": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Queluz e Belas"
+      }
+    ],
+    "parish_hierarchy_fr": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Queluz e Belas"
+      }
+    ],
+    "parish_id": "lisboa_queluz-e-belas",
+    "parking_spaces": 2,
+    "phone": "+351 214 826 830",
+    "photos": [
+      {
+        "main_photo": true,
+        "sequence": 1,
+        "url": "https://static.portadafrente.com/PF30385/BELASC~1_1681903380342.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 2,
+        "url": "https://static.portadafrente.com/PF30422/WellnessSports2_1683200737400.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 3,
+        "url": "https://static.portadafrente.com/PF30422/desktop_headerHome04_1683200737399.jpg"
+      },
+      {
+        "main_photo": false,
+        "sequence": 4,
+        "url": "https://static.portadafrente.com/PF30385/BELASC%7E2_1681903380342.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 5,
+        "url": "https://static.portadafrente.com/PF30422/cozinheiros-cafenocampo_1683200737399.jpg"
+      },
+      {
+        "main_photo": false,
+        "sequence": 6,
+        "url": "https://static.portadafrente.com/PF30422/jogo-padel_1683200737400.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 7,
+        "url": "https://static.portadafrente.com/PF30385/BE2C32%7E1_1681903380341.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 8,
+        "url": "https://static.portadafrente.com/PF30422/WellnessSports3_1683200737400.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 9,
+        "url": "https://static.portadafrente.com/PF30385/BELASC~3_1681903380342.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 10,
+        "url": "https://static.portadafrente.com/PF30422/cartaz_1683200737401.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 11,
+        "url": "https://static.portadafrente.com/PF30385/BELASC~4_1681903380342.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 12,
+        "url": "https://static.portadafrente.com/PF30422/WellnessSports1_1683200737400.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 13,
+        "url": "https://static.portadafrente.com/PF30385/BE8B75~1_1681903380342.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 14,
+        "url": "https://static.portadafrente.com/PF30385/BE506E%7E1_1681903380343.JPG"
+      },
+      {
+        "main_photo": false,
+        "sequence": 15,
+        "url": "https://static.portadafrente.com/PF30422/clubhouse_1683200737403.png"
+      },
+      {
+        "main_photo": false,
+        "sequence": 16,
+        "url": "https://static.portadafrente.com/PF30422/parqueflorestal1-scaled_1683200737400.jpg"
+      },
+      {
+        "main_photo": false,
+        "sequence": 17,
+        "url": "https://static.portadafrente.com/PF30422/cardOclube_Escola01_1683200737400.jpg"
+      }
+    ],
+    "plan_url": "https://portadafrente.my.salesforce.com/sfc/p/1t000000D6v6/a/3Y000003ChfH/f0c3ZP.SDm_VvCBKIeX4ppmlaTa9takwcaDwcII2EiA",
+    "postal_code": "2605-193",
+    "price": 635000,
+    "price_on_application": false,
+    "published_at": 1681948800,
+    "ref": "a0c3Y00000WOd05QAD",
+    "relevance_score": 0,
+    "revelance_score": null,
+    "rooms": 2,
+    "slug_url": "apartamento-t2-no-native-belas-clube-de-campo-lisboa-venda-a0c3Y00000WOd05QAD",
+    "slug_url_en": "2-bedroom-apartment-in-native-belas-clube-de-campo-lisboa-venda-a0c3Y00000WOd05QAD",
+    "slug_url_fr": "appartement-3-pieces-dans-le-native-belas-clube-de-campo-lisboa-venda-a0c3Y00000WOd05QAD",
+    "state_id": "under-construction",
+    "sub_category_id": "apartamento",
+    "sub_category_name": "Apartamento",
+    "sub_category_name_en": "Apartment",
+    "sub_category_name_fr": "Appartement",
+    "surroundings": [
+      "Aeroporto",
+      "Áreas de Lazer Infantil",
+      "Auto-Estrada",
+      "Bombeiros",
+      "Campo de Golfe",
+      "Centro Comercial",
+      "Centro da Cidade",
+      "Escola",
+      "Espaços Verdes",
+      "Farmácia",
+      "Ginásio",
+      "Hipermercado",
+      "Hospital",
+      "Mercado",
+      "Orientação Solar Nascente",
+      "Orientação Solar Norte",
+      "Orientação Solar Poente",
+      "Orientação Solar Sul",
+      "Vista para Campo",
+      "Vista para Campo de Golfe",
+      "Vista para Jardim",
+      "Vista para Montanha",
+      "Estacionamento"
+    ],
+    "surroundings_en": [
+      "Airport",
+      "Children's play areas",
+      "Freeway",
+      "Fire department",
+      "Golf course",
+      "Shopping center",
+      "Town centre",
+      "School",
+      "Green spaces",
+      "Pharmacy",
+      "Gym",
+      "Hypermarket",
+      "Hospital",
+      "Mart",
+      "Rising Solar Orientation",
+      "Solar Orientation North",
+      "Solar Orientation West",
+      "Solar Orientation South",
+      "View to Countryside",
+      "Golf Course View",
+      "Garden View",
+      "Mountain View",
+      "Parking"
+    ],
+    "surroundings_fr": [
+      "Aéroport",
+      "Aires de jeux pour enfants",
+      "Autoroute",
+      "Pompiers",
+      "Terrain de golf",
+      "Centre commercial",
+      "Centre-ville",
+      "École",
+      "Espaces verts",
+      "Pharmacie",
+      "Gym",
+      "grande surface",
+      "Hôpital",
+      "Marché",
+      "Orientation solaire croissante",
+      "Orientation solaire Nord",
+      "Orientation solaire Ouest",
+      "Orientation solaire Sud",
+      "Vue sur la campagne",
+      "Vue du terrain de golf",
+      "Vue du jardin",
+      "Vue sur la montagne",
+      "Parking"
+    ],
+    "title": "Apartamento T2 no Native., Belas Clube de Campo, Lisboa",
+    "title_en": "2 Bedroom Apartment in Native., Belas Clube de Campo, Lisboa",
+    "title_fr": "Appartement 3 pièces dans le Native., Belas Clube de Campo, Lisboa",
+    "title_original": "Apartamento T2 no Native., Belas Clube de Campo, Lisboa",
+    "title_original_en": "2 Bedroom Apartment in Native., Belas Clube de Campo, Lisboa",
+    "title_original_fr": "Appartement 3 pièces dans le Native., Belas Clube de Campo, Lisboa",
+    "updated_at": 1743379200,
+    "video_url": "https://www.youtube.com/embed/RZP82rk0MwE",
+    "zone": "Belas Clube de Campo",
+    "zone_hierarchy": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Belas Clube de Campo"
+      }
+    ],
+    "zone_hierarchy_en": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Belas Clube de Campo"
+      }
+    ],
+    "zone_hierarchy_fr": [
+      {
+        "lvl0": "Área Metropolitana de Lisboa",
+        "lvl1": "Área Metropolitana de Lisboa > Lisboa",
+        "lvl2": "Área Metropolitana de Lisboa > Lisboa > Belas Clube de Campo"
+      }
+    ],
+    "zone_id": "lisboa_belas-clube-de-campo"
+  },
+  "highlight": {},
+  "highlights": [],
+  "text_match": 100,
+  "text_match_info": {
+    "best_field_score": "0",
+    "best_field_weight": 12,
+    "fields_matched": 4,
+    "num_tokens_dropped": 1,
+    "score": "100",
+    "tokens_matched": 0,
+    "typo_prefix_score": 255
+  }
+}
