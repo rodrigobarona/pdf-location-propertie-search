@@ -1,103 +1,73 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import dynamic from "next/dynamic";
+import { InstantSearch } from "react-instantsearch";
+import type { LocationDocument } from "./types/typesense";
+import { typesenseInstantsearchAdapter } from "./utils/typesenseAdapter";
+import SearchBox from "./components/SearchBox";
+
+// Dynamically import the MapWidget to avoid SSR issues with Leaflet
+const MapWidget = dynamic(() => import("./components/MapWidget"), {
+  ssr: false,
+});
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [selectedLocation, setSelectedLocation] =
+    useState<LocationDocument | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+  const handleLocationSelect = (location: LocationDocument) => {
+    setSelectedLocation(location);
+  };
+
+  return (
+    <main className="flex min-h-screen flex-col items-center">
+      <div className="w-full bg-[#e8f162] py-8 mb-4 text-center">
+        <h1 className="text-4xl font-bold">Agora é o momento</h1>
+      </div>
+
+      <div className="w-full max-w-7xl px-4">
+        <InstantSearch
+          indexName="portugal_gadm"
+          searchClient={typesenseInstantsearchAdapter.searchClient}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          <div className="flex flex-wrap gap-2 mb-8">
+            <button
+              type="button"
+              className="px-8 py-2 border-2 border-[#d4277b] text-[#d4277b] font-bold rounded-sm"
+            >
+              Comprar
+            </button>
+            <button
+              type="button"
+              className="px-8 py-2 border-2 border-gray-300 text-gray-700 font-bold rounded-sm"
+            >
+              Arrendar
+            </button>
+
+            <div className="flex-1 flex">
+              <div className="relative flex-1">
+                <SearchBox
+                  onLocationSelect={handleLocationSelect}
+                  placeholder="Onde quer viver?"
+                />
+              </div>
+              <button
+                type="button"
+                className="px-8 py-2 bg-[#d4277b] text-white font-bold rounded-sm"
+              >
+                Procurar
+              </button>
+            </div>
+          </div>
+
+          {selectedLocation && (
+            <div className="w-full h-[600px] rounded-lg overflow-hidden shadow-lg mb-8">
+              <MapWidget locationResult={selectedLocation} />
+            </div>
+          )}
+        </InstantSearch>
+      </div>
+    </main>
   );
 }
