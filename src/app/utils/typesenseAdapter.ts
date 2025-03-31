@@ -17,7 +17,7 @@ export const typesenseInstantsearchAdapter = new TypesenseInstantSearchAdapter({
   },
   additionalSearchParameters: {
     query_by: "name_1,name_2,name_3,country",
-    sort_by: "_text_match:desc",
+    sort_by: "_text_match:desc, level:asc",
     per_page: 10,
   },
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { SearchBox, Hits, RefinementList } from "react-instantsearch";
-import { PropertyDocument } from "../types/typesense";
+import type { PropertyDocument } from "../types/typesense";
 import Image from "next/image";
 
 const PropertyHitComponent = ({ hit }: { hit: PropertyDocument }) => {
@@ -9,10 +9,12 @@ const PropertyHitComponent = ({ hit }: { hit: PropertyDocument }) => {
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       {hit.cover_photo && (
         <div className="relative h-48">
-          <img
+          <Image
             src={hit.cover_photo}
             alt={hit.title || "Property"}
             className="object-cover w-full h-full"
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         </div>
       )}
