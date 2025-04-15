@@ -295,10 +295,10 @@ function douglasPeuckerSimplify(
 
     // Concatenate the two parts (remove duplicate point)
     return [...firstPart.slice(0, -1), ...secondPart];
-  } else {
-    // Below tolerance, return just the endpoints
-    return [firstPoint, lastPoint];
   }
+
+  // Below tolerance, return just the endpoints
+  return [firstPoint, lastPoint];
 }
 
 // Helper to calculate and log bounds of polygon
@@ -634,13 +634,13 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   // Generate a new search ID when location changes
   useEffect(() => {
     // Cancel any pending requests from previous searches
-    abortControllersRef.current.forEach((controller) => {
+    for (const controller of abortControllersRef.current.values()) {
       try {
         controller.abort();
-      } catch (e) {
+      } catch {
         // Ignore abort errors
       }
-    });
+    }
     abortControllersRef.current.clear();
 
     const newSearchId = generateSearchId();
@@ -720,10 +720,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       } catch (error) {
         // Don't report errors for aborted requests
-        if (error.name !== "AbortError") {
+        if (error instanceof Error && error.name !== "AbortError") {
           console.error(
-            `Error fetching sample data for searchId ${currentSearchId}:`,
-            error
+            `Error fetching sample data for searchId ${currentSearchId}: ${error}`
           );
         }
 
@@ -851,12 +850,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               setProperties((prevProperties) => {
                 // Create a set of existing IDs to avoid duplicates
                 const existingIds = new Set(
-                  prevProperties.map((p) => p.id || p.document_id)
+                  prevProperties.map(
+                    (p) => p.id || (p as { document_id?: string }).document_id
+                  )
                 );
 
                 // Add only unique properties
                 const newProperties = data.properties.filter(
-                  (p) => !existingIds.has(p.id || p.document_id)
+                  (p: { id?: string; document_id?: string }) =>
+                    !existingIds.has(p.id || p.document_id)
                 );
 
                 return [...prevProperties, ...newProperties];
@@ -882,10 +884,10 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             );
 
             // Auto-load next page if there are more results
-            if (hasMore && isAutoLoading) {
+            if (hasMore) {
               // Use a slight delay to avoid overwhelming the server
               setTimeout(() => {
-                if (currentSearchId === searchId) {
+                if (currentSearchId === searchId && isAutoLoading) {
                   fetchProperties(coordinates, page + 1);
                 }
               }, 800);
@@ -905,9 +907,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             `Ignoring stale search results for searchId: ${currentSearchId}, current is: ${searchId}`
           );
         }
-      } catch (error) {
+      } catch (error: unknown) {
         // Don't report errors for aborted requests
-        if (error.name !== "AbortError") {
+        if (error instanceof Error && error.name !== "AbortError") {
           console.error(
             `Error fetching properties for searchId ${currentSearchId}:`,
             error
@@ -931,7 +933,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError, searchId, isAutoLoading]
+    [handleFetchError, searchId]
   );
 
   // Function to load more properties (manual trigger if auto-loading is disabled)
@@ -1338,8 +1340,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 <span className="text-blue-600 ml-1 relative group cursor-help">
                   (Simplified polygon)
                   <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded py-1 px-2 w-48 hidden group-hover:block">
-                    Polygon simplified to stay within Typesense's 4000 character
-                    limit. All properties within the area are still included.
+                    Polygon simplified to stay within Typesense&apos;s 4000
+                    character limit. All properties within the area are still
+                    included.
                   </span>
                 </span>
               )}

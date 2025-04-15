@@ -18,17 +18,6 @@ interface SearchResponse {
   found?: number;
 }
 
-// Define a type for the cache data
-interface CacheData {
-  properties: Record<string, unknown>[];
-  count: number;
-  searchType?: string;
-  points?: number;
-  page?: number;
-  per_page?: number;
-  usingSampleData?: boolean;
-}
-
 // After the SearchResponse interface, add the polygon simplification functions:
 
 // Define a point structure for simplification algorithms
