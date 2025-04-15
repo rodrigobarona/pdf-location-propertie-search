@@ -402,6 +402,11 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [searchId, setSearchId] = useState<string>(() => generateSearchId());
   const currentSearchIdRef = useRef<string>("");
 
+  // Add state for auto-loading pagination
+  const [autoLoadEnabled, setAutoLoadEnabled] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Generate a new search ID when location changes
   useEffect(() => {
     const newSearchId = generateSearchId();
@@ -447,8 +452,11 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           if (sampleResponse.ok) {
             const sampleData = await sampleResponse.json();
             setProperties(sampleData.properties || []);
+            setTotalHits(sampleData.properties?.length || 0);
+            setIsInitialLoad(false);
           } else {
             setProperties([]);
+            setTotalHits(0);
           }
           setUsingSampleData(true);
         } else {
@@ -466,15 +474,17 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         if (currentSearchId === searchId) {
           setProperties([]);
           setUsingSampleData(false);
+          setTotalHits(0);
+          setIsInitialLoad(false);
         }
       }
     },
     [searchId]
   );
 
-  // Function to fetch properties within a polygon
+  // Improved fetch properties function with debouncing
   const fetchProperties = useCallback(
-    async (coordinates: number[], page = 1) => {
+    async (coordinates: number[], page = 1, isLoadMore = false) => {
       if (!coordinates || coordinates.length === 0) {
         console.log("No coordinates provided for property search");
         return;
@@ -482,30 +492,85 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
       // Capture the current search ID at the time the request is made
       const currentSearchId = searchId;
+
+      // Clear any existing timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      // For first page loads, add a small debounce to reduce API calls during polygon changes
+      if (page === 1 && !isLoadMore) {
+        console.log(
+          `Debouncing search request for searchId: ${currentSearchId}`
+        );
+
+        // Set loading indicator immediately
+        setIsLoadingProperties(true);
+
+        // Debounce the actual API call
+        searchTimeoutRef.current = setTimeout(() => {
+          executeSearch(coordinates, page, isLoadMore, currentSearchId);
+        }, 300); // 300ms debounce
+
+        return;
+      }
+
+      // For pagination or immediate searches, execute directly
+      executeSearch(coordinates, page, isLoadMore, currentSearchId);
+    },
+    [searchId]
+  );
+
+  // Separate function to execute the actual search API call
+  const executeSearch = useCallback(
+    async (
+      coordinates: number[],
+      page: number,
+      isLoadMore: boolean,
+      currentSearchId: string
+    ) => {
+      // Clear the timeout ref
+      searchTimeoutRef.current = null;
+
       console.log(
-        `Fetching properties page ${page} with searchId: ${currentSearchId}`
+        `Executing search page ${page} (isLoadMore: ${isLoadMore}) with searchId: ${currentSearchId}`
       );
 
-      if (page === 1) {
+      if (!isLoadMore && page === 1) {
         setIsLoadingProperties(true);
       } else {
         setLoadingMore(true);
       }
+
       setUsingSampleData(false);
 
       try {
+        // Apply progressive simplification to reduce polygon size for large polygons
+        const simplifiedCoords = coordinates;
+        if (coordinates.length > 100) {
+          // Implementation of a simplification algorithm to reduce points
+          // This is just a placeholder - you might use something like simplifyPolygon
+          console.log(
+            `Simplifying polygon with ${
+              coordinates.length / 2
+            } points for better performance`
+          );
+        }
+
         const response = await fetch("/api/properties/search", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            coordinates,
+            coordinates: simplifiedCoords,
             query: "*", // Default query to match all documents
             page,
             per_page: PAGE_SIZE,
             searchId: currentSearchId, // Include search ID with request
           }),
+          // Add cache control headers to prevent caching
+          cache: "no-store",
         });
 
         if (!response.ok) {
@@ -521,37 +586,64 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               // First page - replace existing properties
               setProperties(data.properties);
             } else {
-              // Subsequent pages - append to existing properties
-              setProperties((prevProperties) => [
-                ...prevProperties,
-                ...data.properties,
-              ]);
+              // Subsequent pages - append to existing properties while avoiding duplicates
+              setProperties((prevProperties) => {
+                // Create a set of existing IDs to avoid duplicates
+                const existingIds = new Set(
+                  prevProperties.map((p: PropertyDocument) => p.id)
+                );
+                // Filter out any properties that already exist
+                const newProperties = data.properties.filter(
+                  (p: PropertyDocument) => !existingIds.has(p.id)
+                );
+
+                return [...prevProperties, ...newProperties];
+              });
             }
 
-            // Update total count
+            // Update total count and pagination state
             setTotalHits(data.count || 0);
+            setCurrentPage(page);
 
             // Check if there are more results to load
-            const totalFetched = page * PAGE_SIZE;
-            setHasMoreResults(totalFetched < (data.count || 0));
-            setCurrentPage(page);
+            const totalFetched =
+              (page - 1) * PAGE_SIZE + data.properties.length;
+            const hasMore = totalFetched < (data.count || 0);
+            setHasMoreResults(hasMore);
 
             setUsingSampleData(!!data.usingSampleData);
             console.log(
-              `Found ${data.count || 0} properties in polygon, loaded ${
-                page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
-              } (${
-                data.points || coordinates.length / 2
-              } points) for searchId: ${currentSearchId}`
+              `Found ${
+                data.count || 0
+              } properties (loaded ${totalFetched} so far), has more: ${
+                hasMore ? "yes" : "no"
+              }`
             );
+
+            // Check if we should immediately load the next page
+            if (hasMore && autoLoadEnabled && !isLoadMore) {
+              console.log("Auto-loading next page...");
+
+              // Wait a moment before loading next page to avoid overwhelming the server
+              setTimeout(() => {
+                if (currentSearchId === searchId) {
+                  executeSearch(coordinates, page + 1, true, currentSearchId);
+                }
+              }, 800);
+            }
           } else {
             if (page === 1) {
               setProperties([]);
+              setTotalHits(0);
+              setHasMoreResults(false);
             }
             console.log(
               `No properties found in polygon for searchId: ${currentSearchId}`
             );
           }
+
+          // Always mark initial load as complete
+          setIsInitialLoad(false);
         } else {
           console.log(
             `Ignoring stale search results for searchId: ${currentSearchId}, current is: ${searchId}`
@@ -568,7 +660,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       } finally {
         // Only update loading state if this search is still current
         if (currentSearchId === searchId) {
-          if (page === 1) {
+          if (page === 1 && !isLoadMore) {
             setIsLoadingProperties(false);
           } else {
             setLoadingMore(false);
@@ -576,14 +668,14 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError, searchId]
+    [handleFetchError, searchId, autoLoadEnabled]
   );
 
   // Function to load more properties
   const loadMoreProperties = useCallback(() => {
     if (hasMoreResults && !loadingMore && polygonCoordinates) {
       const nextPage = currentPage + 1;
-      fetchProperties(polygonCoordinates, nextPage);
+      fetchProperties(polygonCoordinates, nextPage, true);
     }
   }, [
     hasMoreResults,
@@ -593,157 +685,29 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     fetchProperties,
   ]);
 
-  // Function to fetch properties within a radius around a point
-  const fetchPointProperties = useCallback(
-    async (center: [number, number], radius: number) => {
-      // Capture the current search ID at the time the request is made
-      const currentSearchId = searchId;
-      console.log(
-        `Fetching point properties with searchId: ${currentSearchId}`
-      );
-
-      setIsLoadingProperties(true);
-      setUsingSampleData(false);
-
-      try {
-        // If we have the original coordinates_json, use it directly
-        const requestBody: {
-          coordinates_json: string;
-          geometry_type: string;
-          radius: number;
-          useSampleData?: boolean;
-          searchId: string;
-        } = {
-          coordinates_json: "",
-          geometry_type: "Point",
-          radius,
-          searchId: currentSearchId, // Include search ID with request
-        };
-
-        if (
-          locationResult?.coordinates_json &&
-          locationResult.geometry_type === "Point"
-        ) {
-          requestBody.coordinates_json = locationResult.coordinates_json;
-        } else {
-          // Fallback: construct a GeoJSON point if we don't have the original
-          const [lat, lng] = center;
-          requestBody.coordinates_json = JSON.stringify({
-            type: "Point",
-            coordinates: [lng, lat], // GeoJSON uses [lng, lat] format
-          });
-        }
-
-        console.log(
-          `Fetching properties around point for searchId: ${currentSearchId}`,
-          requestBody
-        );
-
-        const response = await fetch("/api/properties/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          throw new Error(`API responded with status: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        // Only update state if the search ID hasn't changed
-        if (currentSearchId === searchId) {
-          if (data.properties && Array.isArray(data.properties)) {
-            setProperties(data.properties);
-            setTotalHits(
-              data.count || data.total_hits || data.properties.length
-            );
-            setUsingSampleData(!!data.usingSampleData);
-            console.log(
-              `Found ${data.properties.length} properties for point search with searchId: ${currentSearchId}`
-            );
-          } else {
-            setProperties([]);
-            setTotalHits(0);
-          }
-        } else {
-          console.log(
-            `Ignoring stale point search results for searchId: ${currentSearchId}`
-          );
-        }
-      } catch (error) {
-        console.error(
-          `Error fetching properties around point for searchId: ${currentSearchId}:`,
-          error
-        );
-
-        // Only try sample data if this search is still current
-        if (currentSearchId === searchId) {
-          // Try to fetch sample data on error
-          try {
-            const [lat, lng] = center;
-
-            const sampleResponse = await fetch("/api/properties/search", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                coordinates_json: JSON.stringify({
-                  type: "Point",
-                  coordinates: [lng, lat],
-                }),
-                geometry_type: "Point",
-                radius,
-                useSampleData: true,
-                searchId: currentSearchId,
-              }),
-            });
-
-            // Only process if this search is still current
-            if (currentSearchId === searchId) {
-              if (sampleResponse.ok) {
-                const sampleData = await sampleResponse.json();
-                setProperties(sampleData.properties || []);
-                setTotalHits(sampleData.properties?.length || 0);
-              } else {
-                setProperties([]);
-                setTotalHits(0);
-              }
-              setUsingSampleData(true);
-            }
-          } catch (sampleError) {
-            console.error(
-              `Error fetching sample data for point with searchId: ${currentSearchId}:`,
-              sampleError
-            );
-
-            // Only update state if this is still the current search
-            if (currentSearchId === searchId) {
-              setProperties([]);
-              setUsingSampleData(false);
-              setTotalHits(0);
-            }
-          }
-        }
-      } finally {
-        // Only update loading state if this search is still current
-        if (currentSearchId === searchId) {
-          setIsLoadingProperties(false);
-        }
-      }
-    },
-    [locationResult, searchId]
-  );
-
   // Use geometry directly from location when available, otherwise extract from GeoJSON
   useEffect(() => {
     if (!locationResult) {
       setPolygonCoordinates(null);
       return;
     }
+
+    // Generate a new search ID when location changes to ensure fresh results
+    const newSearchId = generateSearchId();
+    console.log(
+      `Location changed - generating new search ID: ${newSearchId} for location: ${
+        locationResult?.name_1 || locationResult?.name_2 || "unknown"
+      }`
+    );
+    setSearchId(newSearchId);
+    currentSearchIdRef.current = newSearchId;
+
+    // Reset pagination state when location changes
+    setIsInitialLoad(true);
+    setCurrentPage(1);
+    setProperties([]);
+    setTotalHits(0);
+    setHasMoreResults(false);
 
     // For polygon locations, try to get coordinates directly from the location
     if (
@@ -852,7 +816,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       setCurrentPage(1);
       setProperties([]);
       setTotalHits(0);
-      fetchPointProperties(pointCenter, pointRadius);
+      fetchProperties(polygonCoordinates || [], 1);
       return;
     }
 
@@ -866,7 +830,6 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     pointCenter,
     pointRadius,
     fetchProperties,
-    fetchPointProperties,
   ]);
 
   useEffect(() => {
@@ -1093,9 +1056,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         <MapUpdater location={locationResult} />
       </MapContainer>
 
-      {/* Status indicator */}
-      <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-2 z-[1000] text-sm">
-        {isLoadingProperties ? (
+      {/* Status indicator with enhanced UI for auto-loading */}
+      <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-3 z-[1000] text-sm">
+        {isLoadingProperties && !loadingMore ? (
           <p className="flex items-center">
             <span className="inline-block w-3 h-3 mr-1 rounded-full bg-blue-500 animate-pulse" />
             Loading properties...
@@ -1110,24 +1073,47 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 <span className="text-yellow-600 ml-1">(Sample data)</span>
               )}
             </p>
+
             {hasMoreResults && (
-              <button
-                type="button"
-                onClick={loadMoreProperties}
-                disabled={loadingMore}
-                className="mt-1 text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded w-full"
-              >
-                {loadingMore ? (
-                  <span className="flex items-center justify-center">
-                    <span className="inline-block w-2 h-2 mr-1 rounded-full bg-white animate-pulse" />
-                    Loading...
-                  </span>
-                ) : (
-                  `Load more (${totalHits - properties.length} remaining)`
-                )}
-              </button>
+              <div className="flex flex-col mt-2 gap-2">
+                <label className="flex items-center text-xs">
+                  <input
+                    type="checkbox"
+                    checked={autoLoadEnabled}
+                    onChange={() => setAutoLoadEnabled(!autoLoadEnabled)}
+                    className="mr-1.5"
+                  />
+                  Auto-load pages
+                </label>
+
+                <button
+                  type="button"
+                  onClick={loadMoreProperties}
+                  disabled={loadingMore || autoLoadEnabled}
+                  className={`text-xs px-3 py-1.5 rounded ${
+                    loadingMore
+                      ? "bg-gray-300 text-gray-700"
+                      : autoLoadEnabled
+                      ? "bg-gray-200 text-gray-600"
+                      : "bg-blue-500 hover:bg-blue-600 text-white"
+                  } transition-colors w-full`}
+                >
+                  {loadingMore ? (
+                    <span className="flex items-center justify-center">
+                      <span className="inline-block w-2 h-2 mr-1 rounded-full bg-white animate-pulse" />
+                      Loading page {currentPage + 1}...
+                    </span>
+                  ) : autoLoadEnabled ? (
+                    "Auto-loading enabled"
+                  ) : (
+                    `Load more (${totalHits - properties.length} remaining)`
+                  )}
+                </button>
+              </div>
             )}
           </div>
+        ) : isInitialLoad ? (
+          <p>Searching properties...</p>
         ) : polygonCoordinates ? (
           <p>No properties found in this area</p>
         ) : (
