@@ -156,6 +156,7 @@ export async function POST(request: Request) {
       coordinates_json?: string;
       geometry_type?: string;
       radius?: number;
+      filter_by?: string;
       useSampleData?: boolean;
       page?: number;
       per_page?: number;
@@ -172,6 +173,7 @@ export async function POST(request: Request) {
       coordinates_json,
       geometry_type,
       radius,
+      filter_by,
       useSampleData,
       page = 1,
       per_page = 250,
@@ -258,6 +260,80 @@ export async function POST(request: Request) {
       use_cache: false, // Disable server-side caching for search results
       max_candidates: 10000, // Increase max candidates for complex geo queries
     };
+
+    // If filter_by parameter is provided, use it directly for point-radius search
+    if (filter_by && filter_by.includes("_geoloc")) {
+      try {
+        console.log(`Performing geo search with filter: ${filter_by}`);
+
+        // Extract lat/lng from filter for sorting
+        let sort_by = undefined;
+        try {
+          // Only attempt to parse if it's a string containing _geoloc
+          if (
+            filter_by &&
+            typeof filter_by === "string" &&
+            filter_by.includes("_geoloc")
+          ) {
+            const matches = filter_by.match(/_geoloc:\(([^,]+),\s*([^,]+)/);
+            if (matches && matches.length >= 3) {
+              sort_by = `_geoloc(${matches[1].trim()}, ${matches[2].trim()}):asc`;
+              console.log(`Using distance sorting: ${sort_by}`);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to extract coordinates for sorting:", e);
+        }
+
+        // Perform the search with Typesense
+        const searchResults = (await typesenseClient
+          .collections(COLLECTION_PROPERTIES)
+          .documents()
+          .search({
+            q: query,
+            query_by: "title,address,description",
+            filter_by: filter_by,
+            sort_by: sort_by,
+            per_page: per_page,
+            page: page,
+            ...commonSearchParams,
+          })) as SearchResponse;
+
+        console.log(
+          `Found ${
+            searchResults.found || 0
+          } properties using filter_by, returning page ${page} with ${
+            searchResults.hits?.length || 0
+          } properties`
+        );
+
+        const responseData = {
+          properties: searchResults.hits?.map((hit) => hit.document) || [],
+          count: searchResults.found || 0,
+          searchType: "geo_filter",
+          page: page,
+          per_page: per_page,
+          searchId,
+          location_info: {
+            level: location_level,
+            id: location_id,
+            name: location_name,
+          },
+        };
+
+        return NextResponse.json(responseData, { headers: responseHeaders });
+      } catch (error) {
+        console.error("Error performing geo filter search:", error);
+        return NextResponse.json(
+          {
+            error: "Failed to perform geo filter search",
+            details: error instanceof Error ? error.message : String(error),
+            searchId,
+          },
+          { status: 400, headers: responseHeaders }
+        );
+      }
+    }
 
     // Simple text search when no geometry is provided
     if (!coordinates && !coordinates_json) {

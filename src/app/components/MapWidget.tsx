@@ -869,10 +869,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         const controllerKey = `${currentSearchId}_page${page}_${requestId}`;
         abortControllersRef.current.set(controllerKey, controller);
 
+        // Calculate radius in km for Typesense filter
+        const radiusKm = pointRadius / 1000;
         console.log(
           `[${requestId}] Fetching point-radius properties page ${page} with searchId: ${currentSearchId} at [${
             pointCenter[0]
-          }, ${pointCenter[1]}] with radius ${pointRadius}m for location: ${
+          }, ${pointCenter[1]}] with radius ${radiusKm}km for location: ${
             locationResult?.name_4 ||
             locationResult?.name_3 ||
             locationResult?.name_2 ||
@@ -889,12 +891,6 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         setUsingSampleData(false);
 
         try {
-          // Create GeoJSON point object
-          const pointGeoJSON = {
-            type: "Point",
-            coordinates: [pointCenter[1], pointCenter[0]], // Convert from [lat, lng] to [lng, lat] for GeoJSON
-          };
-
           const response = await fetch("/api/properties/search", {
             method: "POST",
             headers: {
@@ -910,9 +906,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               "X-Location-Name": currentLocationName,
             },
             body: JSON.stringify({
-              geometry_type: "Point",
-              coordinates_json: JSON.stringify(pointGeoJSON),
-              radius: pointRadius,
+              // Use filter_by parameter with _geoloc filter for radius search
+              filter_by: `_geoloc:(${pointCenter[0]}, ${pointCenter[1]}, ${radiusKm} km)`,
               query: "*", // Default query to match all documents
               page,
               per_page: PAGE_SIZE,
@@ -959,15 +954,6 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 `[${requestId}] Response searchId ${data.searchId} doesn't match current searchId ${currentSearchId}, discarding results`
               );
               return;
-            }
-
-            // Check if server did additional simplification
-            if (
-              data.simplificationApplied &&
-              !usedSimplifiedPolygonRef.current
-            ) {
-              setUsedSimplifiedPolygon(true);
-              usedSimplifiedPolygonRef.current = true;
             }
 
             if (data.properties && Array.isArray(data.properties)) {
