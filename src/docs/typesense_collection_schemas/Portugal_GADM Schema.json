@@ -1,5 +1,5 @@
 {
-    "created_at": 1743125113,
+    "created_at": 1744667640,
     "default_sorting_field": "",
     "enable_nested_fields": true,
     "fields": [
@@ -73,6 +73,19 @@
             "index": true,
             "infix": false,
             "locale": "",
+            "name": "gid_4",
+            "optional": true,
+            "sort": false,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "string"
+        },
+        {
+            "facet": true,
+            "index": true,
+            "infix": false,
+            "locale": "",
             "name": "country",
             "optional": false,
             "sort": false,
@@ -125,6 +138,19 @@
             "index": true,
             "infix": false,
             "locale": "",
+            "name": "name_4",
+            "optional": true,
+            "sort": false,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "string"
+        },
+        {
+            "facet": true,
+            "index": true,
+            "infix": false,
+            "locale": "",
             "name": "type_1",
             "optional": true,
             "sort": false,
@@ -152,6 +178,19 @@
             "infix": false,
             "locale": "",
             "name": "type_3",
+            "optional": true,
+            "sort": false,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "string"
+        },
+        {
+            "facet": true,
+            "index": true,
+            "infix": false,
+            "locale": "",
+            "name": "type_4",
             "optional": true,
             "sort": false,
             "stem": false,
@@ -199,6 +238,19 @@
             "type": "string"
         },
         {
+            "facet": true,
+            "index": true,
+            "infix": false,
+            "locale": "",
+            "name": "engtype_4",
+            "optional": true,
+            "sort": false,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "string"
+        },
+        {
             "facet": false,
             "index": true,
             "infix": false,
@@ -223,10 +275,49 @@
             "stem_dictionary": "",
             "store": true,
             "type": "string"
+        },
+        {
+            "facet": false,
+            "index": true,
+            "infix": false,
+            "locale": "",
+            "name": "point_lat",
+            "optional": true,
+            "sort": true,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "float"
+        },
+        {
+            "facet": false,
+            "index": true,
+            "infix": false,
+            "locale": "",
+            "name": "point_lng",
+            "optional": true,
+            "sort": true,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "float"
+        },
+        {
+            "facet": false,
+            "index": true,
+            "infix": false,
+            "locale": "",
+            "name": "radius",
+            "optional": true,
+            "sort": true,
+            "stem": false,
+            "stem_dictionary": "",
+            "store": true,
+            "type": "int32"
         }
     ],
     "name": "portugal_gadm",
-    "num_documents": 4588,
+    "num_documents": 4772,
     "symbols_to_index": [],
     "token_separators": []
 }

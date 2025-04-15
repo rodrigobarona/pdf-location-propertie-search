@@ -7,6 +7,9 @@ import type { LocationDocument } from "./types/typesense";
 import { typesenseInstantsearchAdapter } from "./utils/typesenseAdapter";
 import SearchBox from "./components/SearchBox";
 
+// Get the locations collection name from environment variables
+const LOCATIONS_COLLECTION = process.env.NEXT_PUBLIC_TYPESENSE_COLLECTION_LOCATIONS || "portugal_gadm";
+
 // Dynamically import the MapWidget to avoid SSR issues with Leaflet
 const MapWidget = dynamic(() => import("./components/MapWidget"), {
   ssr: false,
@@ -28,7 +31,7 @@ export default function Home() {
 
       <div className="w-full max-w-7xl px-4">
         <InstantSearch
-          indexName="portugal_gadm"
+          indexName={LOCATIONS_COLLECTION}
           searchClient={typesenseInstantsearchAdapter.searchClient}
         >
           <div className="flex flex-wrap gap-2 mb-8">

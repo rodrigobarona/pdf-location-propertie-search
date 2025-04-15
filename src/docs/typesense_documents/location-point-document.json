@@ -1,0 +1,16 @@
+{
+  "coordinates_json": "{\"type\":\"Point\",\"coordinates\":[-9.1609443,38.7221497]}",
+  "country": "Portugal",
+  "engtype_4": "Neighborhood",
+  "geometry_type": "Point",
+  "gid_0": "PRT",
+  "gid_2": "lisboa",
+  "gid_4": "lisboa_amoreiras",
+  "id": "4_lisboa_amoreiras",
+  "level": 4,
+  "name_4": "Amoreiras",
+  "point_lat": 38.7221497,
+  "point_lng": -9.1609443,
+  "radius": 800,
+  "type_4": "Neighborhood"
+}
