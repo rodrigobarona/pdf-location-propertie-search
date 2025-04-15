@@ -273,27 +273,43 @@ export async function POST(request: Request) {
       filter_by.includes("_geoloc")
     ) {
       try {
-        console.log(`Performing geo search with filter: ${filter_by}`);
+        // Check if the request came from SearchBox (has X-Count-Only header)
+        const isFromSearchBox = request.headers.get("X-Count-Only") === "true";
+        console.log(
+          `Performing geo search with filter: ${filter_by} (from ${
+            isFromSearchBox ? "SearchBox" : "MapWidget"
+          })`
+        );
+        console.log(
+          `Location info: level=${location_level}, name=${location_name}, id=${location_id}`
+        );
 
         // For count-only queries, we can use a more efficient approach
         if (count_only) {
           // For count-only, we don't need to retrieve documents, just get the count
+          const searchParameters = {
+            q: query,
+            query_by: "title,address",
+            filter_by: filter_by,
+            page: 1,
+            per_page: 0, // No need for actual results
+            ...commonSearchParams,
+          };
+
+          console.log("Sending count-only geo search to Typesense:", {
+            ...searchParameters,
+            filter_by: filter_by,
+          });
+
           const searchResults = (await typesenseClient
             .collections(COLLECTION_PROPERTIES)
             .documents()
-            .search({
-              q: query,
-              query_by: "title,address",
-              filter_by: filter_by,
-              page: 1,
-              per_page: 0, // No need for actual results
-              ...commonSearchParams,
-            })) as SearchResponse;
+            .search(searchParameters)) as SearchResponse;
 
           console.log(
-            `Count-only: Found ${
+            `Count-only geo search: Found ${
               searchResults.found || 0
-            } properties using filter_by`
+            } properties using filter_by for level ${location_level}, name: ${location_name}`
           );
 
           return NextResponse.json(
@@ -767,12 +783,14 @@ export async function POST(request: Request) {
       );
     }
 
-    // For count-only queries, optimize the search parameters
+    // Check for either count_only flag to optimize our queries
     if (count_only) {
       console.log(
         `Performing count-only polygon search with ${
           searchCoordinates.length / 2
-        } points`
+        } points, level: ${location_level || "unknown"}, name: ${
+          location_name || "unknown"
+        }`
       );
 
       const searchParameters = {
@@ -784,6 +802,13 @@ export async function POST(request: Request) {
       };
 
       try {
+        console.log("Sending count-only search to Typesense:", {
+          ...searchParameters,
+          filter_by: `polygon with ${searchCoordinates.length / 2} points (${
+            polygonFilterString.length
+          } chars)`,
+        });
+
         const searchResults = (await typesenseClient
           .collections(COLLECTION_PROPERTIES)
           .documents()
@@ -792,7 +817,9 @@ export async function POST(request: Request) {
         console.log(
           `Count-only: Found ${
             searchResults.found || 0
-          } properties inside the polygon`
+          } properties inside the polygon for level ${
+            location_level || "unknown"
+          }, name: ${location_name || "unknown"}`
         );
 
         return NextResponse.json(

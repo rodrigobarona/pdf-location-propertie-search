@@ -989,21 +989,28 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 });
               }
 
-              // Update total count
-              setTotalHits(data.count || 0);
+              // Update total count - check both count and found properties
+              const totalCount =
+                data.found !== undefined ? data.found : data.count;
+              console.log(
+                `[${requestId}] Total count from API: ${totalCount} (from ${
+                  data.found !== undefined ? "found" : "count"
+                } property)`
+              );
+              setTotalHits(totalCount || 0);
 
               // Check if there are more results to load
               const totalFetched = page * PAGE_SIZE;
-              const hasMore = totalFetched < (data.count || 0);
+              const hasMore = totalFetched < (totalCount || 0);
               setHasMoreResults(hasMore);
               setCurrentPage(page);
 
               setUsingSampleData(!!data.usingSampleData);
               console.log(
                 `[${requestId}] Found ${
-                  data.count || 0
+                  totalCount || 0
                 } properties in radius, loaded ${
-                  page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
+                  page * PAGE_SIZE > totalCount ? totalCount : page * PAGE_SIZE
                 } for searchId: ${currentSearchId}`
               );
 
@@ -1068,12 +1075,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           // Clean up the controller if it wasn't already removed
           abortControllersRef.current.delete(controllerKey);
 
-          // Only update loading state if this search is still current and location hasn't changed
-          if (
-            currentSearchId === searchId &&
-            currentLocationLevel === locationResult?.level &&
-            currentLocationId === locationResult?.id
-          ) {
+          // Only update loading state if this search is still current
+          if (currentSearchId === searchId) {
             if (page === 1) {
               setIsLoadingProperties(false);
             } else {
@@ -1248,18 +1251,25 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             }
 
             // Update total count
-            setTotalHits(data.count || 0);
+            const totalCount =
+              data.found !== undefined ? data.found : data.count;
+            console.log(
+              `[${requestId}] Total count from API: ${totalCount} (from ${
+                data.found !== undefined ? "found" : "count"
+              } property)`
+            );
+            setTotalHits(totalCount || 0);
 
             // Check if there are more results to load
             const totalFetched = page * PAGE_SIZE;
-            const hasMore = totalFetched < (data.count || 0);
+            const hasMore = totalFetched < (totalCount || 0);
             setHasMoreResults(hasMore);
             setCurrentPage(page);
 
             setUsingSampleData(!!data.usingSampleData);
             console.log(
-              `Found ${data.count || 0} properties in polygon, loaded ${
-                page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
+              `Found ${totalCount || 0} properties in polygon, loaded ${
+                page * PAGE_SIZE > totalCount ? totalCount : page * PAGE_SIZE
               } (${
                 data.points || coordinates.length / 2
               } points) for searchId: ${currentSearchId}`

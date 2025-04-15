@@ -62,65 +62,125 @@ async function fetchLocationCount(hit: LocationDocument): Promise<number> {
   // Generate a search ID for this count query
   const countSearchId = `count_${Date.now()}_${Math.random()
     .toString(36)
-    .substring(2, 8)}`;
+    .substring(2, 8)}_${hit.level}_${
+    hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || hit.country
+  }`;
+
+  console.log(
+    `[Count] Fetching count for ${
+      hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || hit.country
+    } (Level ${hit.level})`
+  );
+  console.log(
+    `[Count] Location data: geometry_type=${
+      hit.geometry_type
+    }, has_coordinates_json=${!!hit.coordinates_json}, has_point_coords=${!!(
+      hit.point_lat && hit.point_lng
+    )}, has_radius=${!!hit.radius}`
+  );
 
   try {
-    // For level 4 (point locations), use radius search
-    if (hit.level === 4 || hit.geometry_type === "Point") {
-      if (hit.point_lat && hit.point_lng && hit.radius) {
-        // Calculate radius in km for Typesense
-        const radiusKm = hit.radius / 1000;
+    // For level 4 (point locations), use point-radius search
+    if (
+      hit.level === 4 &&
+      hit.geometry_type === "Point" &&
+      hit.point_lat &&
+      hit.point_lng &&
+      hit.radius
+    ) {
+      // Calculate radius in km (Typesense uses km)
+      const radiusKm = hit.radius / 1000;
+
+      console.log(
+        `[Count] Using radius: ${hit.radius}m (${radiusKm}km) for point search at ${hit.point_lat},${hit.point_lng}`
+      );
+
+      // Explicitly format the filter_by parameter with proper syntax
+      const filter_by = `_geoloc:(${hit.point_lat}, ${hit.point_lng}, ${radiusKm} km)`;
+      console.log(`[Count] Creating filter_by: ${filter_by}`);
+
+      const response = await fetch("/api/properties/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+          "X-Request-Time": Date.now().toString(),
+          "X-Location-Level": hit.level.toString(),
+          "X-Location-ID": hit.id || "",
+          "X-Location-Name": hit.name_4 || "unknown",
+          "X-Count-Only": "true",
+        },
+        body: JSON.stringify({
+          filter_by,
+          query: "*",
+          per_page: 0,
+          searchId: countSearchId,
+          count_only: true,
+          location_level: hit.level,
+          location_id: hit.id,
+          location_name: hit.name_4 || "unknown",
+          timestamp: Date.now(),
+        }),
+      });
+
+      console.log(`[Count] Point search response status: ${response.status}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("[Count] Point search response data:", data);
         console.log(
-          `[Count] Using radius of ${radiusKm}km for point search at [${hit.point_lat}, ${hit.point_lng}]`
+          `[Count] Found ${data.found || 0} properties for ${
+            hit.name_4 || "location"
+          }`
         );
-
-        const response = await fetch("/api/properties/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "X-Count-Only": "true",
-            Pragma: "no-cache",
-            Expires: "0",
-            "X-Request-Time": Date.now().toString(),
-            "X-Location-Level": hit.level.toString(),
-            "X-Location-ID": hit.id || "",
-            "X-Location-Name":
-              hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
-          },
-          body: JSON.stringify({
-            filter_by: `_geoloc:(${hit.point_lat}, ${hit.point_lng}, ${radiusKm} km)`,
-            query: "*",
-            per_page: 0,
-            searchId: countSearchId,
-            count_only: true,
-            location_level: hit.level,
-            location_id: hit.id,
-            location_name:
-              hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
-            timestamp: Date.now(), // Add timestamp to prevent caching
-          }),
-          cache: "no-store",
-          next: { revalidate: 0 }, // NextJS-specific: don't cache this request
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log(
-            `[Count] Found ${data.count || 0} properties for ${
-              hit.name_4 || hit.name_3 || "location"
-            }`
-          );
-          return data.count || 0;
-        }
-
-        console.error(
-          `[Count] API error: ${response.status} ${response.statusText}`
-        );
+        return data.found || 0;
       }
+
+      console.error(
+        `[Count] API error: ${response.status} ${response.statusText}`
+      );
+      const errorText = await response
+        .text()
+        .catch(() => "Could not read error response");
+      console.error(`[Count] Error details: ${errorText}`);
+
+      return 0; // Return 0 for failed requests
     }
-    // For levels 0-3 (polygon locations), use polygon search
-    else if (hit.coordinates_json) {
+    // If we don't have coordinates or radius for a point search, return 0
+    if (hit.level === 4 && hit.geometry_type === "Point") {
+      console.warn(
+        `[Count] Missing point data for Level 4 location: ${
+          hit.name_4 || "unknown"
+        }`
+      );
+      console.log("[Count] Available data:", {
+        level: hit.level,
+        id: hit.id,
+        name: hit.name_4,
+        lat: hit.point_lat,
+        lng: hit.point_lng,
+        radius: hit.radius,
+        geometry_type: hit.geometry_type,
+      });
+      return 0;
+    }
+
+    // Use polygon search for locations with polygons (typically levels 0-3)
+    if (hit.coordinates_json && hit.country) {
+      console.log(
+        `[Count] Polygon search for level ${hit.level} location: ${
+          hit.name_1 || hit.name_2 || hit.name_3 || hit.country
+        }`
+      );
+      console.log(
+        `[Count] Coordinates JSON preview: ${hit.coordinates_json.substring(
+          0,
+          100
+        )}...`
+      );
+
       const response = await fetch("/api/properties/search", {
         method: "POST",
         headers: {
@@ -137,7 +197,7 @@ async function fetchLocationCount(hit: LocationDocument): Promise<number> {
         },
         body: JSON.stringify({
           coordinates_json: hit.coordinates_json,
-          geometry_type: hit.geometry_type,
+          geometry_type: hit.geometry_type || "Polygon",
           query: "*",
           per_page: 0,
           searchId: countSearchId,
@@ -145,34 +205,44 @@ async function fetchLocationCount(hit: LocationDocument): Promise<number> {
           location_level: hit.level,
           location_id: hit.id,
           location_name: hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
-          timestamp: Date.now(), // Add timestamp to prevent caching
+          timestamp: Date.now(),
         }),
-        cache: "no-store",
-        next: { revalidate: 0 }, // NextJS-specific: don't cache this request
       });
+
+      console.log(`[Count] Polygon search response status: ${response.status}`);
 
       if (response.ok) {
         const data = await response.json();
+        console.log("[Count] Polygon search response data:", data);
+
+        // Check for either 'found' or 'count' property in the response
+        const count = data.found !== undefined ? data.found : data.count;
+
         console.log(
-          `[Count] Found ${data.count || 0} properties for ${
+          `[Count] Found ${count || 0} properties for ${
             hit.name_3 || hit.name_2 || hit.name_1 || "location"
           }`
         );
-        return data.count || 0;
+        return count || 0;
       }
 
       console.error(
         `[Count] API error: ${response.status} ${response.statusText}`
       );
+      const errorText = await response
+        .text()
+        .catch(() => "Could not read error response");
+      console.error(`[Count] Error details: ${errorText}`);
+      return 0; // Return 0 for failed requests
     }
+
+    // Default fallback if we can't determine how to search
+    console.warn("[Count] Unable to determine search type for location:", hit);
+    return 0; // Return 0 as fallback
   } catch (error) {
     console.error("[Count] Error fetching property count:", error);
+    return 0;
   }
-
-  // Fall back to a random count between 1-1000 if fetch fails
-  const randomCount = Math.floor(Math.random() * 1000) + 1;
-  console.log("[Count] Using fallback random count:", randomCount);
-  return randomCount;
 }
 
 // Separate component for a location item
