@@ -933,7 +933,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError, searchId]
+    [handleFetchError, searchId, isAutoLoading]
   );
 
   // Function to load more properties (manual trigger if auto-loading is disabled)
