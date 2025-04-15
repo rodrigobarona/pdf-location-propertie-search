@@ -160,6 +160,10 @@ export async function POST(request: Request) {
       page?: number;
       per_page?: number;
       searchId?: string;
+      timestamp?: number;
+      location_level?: number;
+      location_id?: string;
+      location_name?: string;
     } = await request.json();
 
     const {
@@ -172,11 +176,26 @@ export async function POST(request: Request) {
       page = 1,
       per_page = 250,
       searchId,
+      timestamp,
+      location_level,
+      location_id,
+      location_name,
     } = body;
 
-    // Log the search ID to help with debugging
+    // Log the search ID and location info to help with debugging
     if (searchId) {
-      console.log(`Processing search request with ID: ${searchId}`);
+      console.log(
+        `Processing search request with ID: ${searchId}${
+          timestamp ? ` (timestamp: ${timestamp})` : ""
+        }`
+      );
+      if (location_level !== undefined) {
+        console.log(
+          `Search for location: "${location_name}", level: ${location_level}, ID: ${
+            location_id || "unknown"
+          }`
+        );
+      }
     }
 
     // Set response headers to prevent caching
@@ -184,6 +203,14 @@ export async function POST(request: Request) {
       "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
       Pragma: "no-cache",
       Expires: "0",
+      // Add a timestamp header to help with debugging
+      "X-Response-Time": Date.now().toString(),
+      // Add the search ID to the response headers
+      "X-Search-ID": searchId || "",
+      // Add location information to response headers
+      "X-Location-Level": String(location_level || ""),
+      "X-Location-ID": location_id || "",
+      "X-Location-Name": location_name || "",
     };
 
     // Return sample data if explicitly requested
@@ -217,12 +244,19 @@ export async function POST(request: Request) {
 
     // Common Typesense parameters for all searches to ensure fresh results
     const commonSearchParams = {
-      // Add unique cache-busting parameter for each request
-      cache_busting_id: searchId || `cb_${Date.now()}`,
-      // Typesense v28 parameters for performance
+      // Add unique cache-busting parameter for each request that includes location level and ID
+      cache_busting_id: `${searchId || ""}_${location_level || "unknown"}_${(
+        location_id || ""
+      ).replace(/\s+/g, "_")}_${(location_name || "").replace(
+        /\s+/g,
+        "_"
+      )}_${Date.now()}`,
+      // Typesense v28 parameters for performance and cache control
       prioritize_exact_match: true,
       exhaustive_search: true,
       search_cutoff_ms: 3000, // 3 seconds max search time
+      use_cache: false, // Disable server-side caching for search results
+      max_candidates: 10000, // Increase max candidates for complex geo queries
     };
 
     // Simple text search when no geometry is provided
@@ -326,6 +360,11 @@ export async function POST(request: Request) {
             page: page,
             per_page: per_page,
             searchId,
+            location_info: {
+              level: location_level,
+              id: location_id,
+              name: location_name,
+            },
           };
 
           return NextResponse.json(responseData, { headers: responseHeaders });
@@ -600,6 +639,11 @@ export async function POST(request: Request) {
         page: page,
         per_page: per_page,
         searchId,
+        location_info: {
+          level: location_level,
+          id: location_id,
+          name: location_name,
+        },
       };
 
       return NextResponse.json(responseData, { headers: responseHeaders });

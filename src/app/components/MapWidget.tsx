@@ -591,8 +591,27 @@ interface MapWidgetProps {
 }
 
 // Generate a truly unique search ID with timestamp and random string
-function generateSearchId(): string {
-  return `search_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+function generateSearchId(locationResult?: LocationDocument | null): string {
+  // Include location info in the search ID to distinguish between searches
+  // for different administrative levels with the same name
+  const locationInfo = locationResult
+    ? `_${locationResult.level}_${
+        locationResult.name_4 ||
+        locationResult.name_3 ||
+        locationResult.name_2 ||
+        locationResult.name_1 ||
+        "unknown"
+      }_${locationResult.id?.substring(0, 10) || "unknown"}_${
+        locationResult.geometry_type || "unknown"
+      }`
+    : "";
+
+  // Add a unique client-side hash
+  const uniqueHash = `${Date.now()}_${Math.random()
+    .toString(36)
+    .substring(2, 8)}`;
+
+  return `search_${uniqueHash}${locationInfo}`;
 }
 
 // Main map widget
@@ -618,11 +637,13 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [totalHits, setTotalHits] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const isAutoLoading = true; // Always auto-load, no state/toggle needed
+  const isAutoLoading = true; // Always auto-load, no state needed
   const PAGE_SIZE = 250;
 
   // Advanced search tracking
-  const [searchId, setSearchId] = useState<string>(() => generateSearchId());
+  const [searchId, setSearchId] = useState<string>(() =>
+    generateSearchId(locationResult)
+  );
   const currentSearchIdRef = useRef<string>("");
   const loadedPagesRef = useRef<Set<number>>(new Set());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -633,27 +654,45 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
   // Generate a new search ID when location changes
   useEffect(() => {
-    // Cancel any pending requests from previous searches
+    // Abort all pending requests from previous searches
     for (const controller of abortControllersRef.current.values()) {
       try {
         controller.abort();
+        console.log("Aborted a pending request");
       } catch {
         // Ignore abort errors
       }
     }
     abortControllersRef.current.clear();
 
-    const newSearchId = generateSearchId();
+    // Force garbage collection of old state
+    loadedPagesRef.current = new Set();
+    usedSimplifiedPolygonRef.current = false;
+
+    // Generate new search ID with distinctive location info
+    const newSearchId = generateSearchId(locationResult);
+
     console.log(
       `Location changed - generating new search ID: ${newSearchId} for location: ${
-        locationResult?.name_1 || locationResult?.name_2 || "unknown"
+        locationResult?.name_1 ||
+        locationResult?.name_2 ||
+        locationResult?.name_3 ||
+        locationResult?.name_4 ||
+        "unknown"
+      }, level: ${locationResult?.level || "unknown"}, id: ${
+        locationResult?.id || "unknown"
       }`
     );
 
-    // Reset all search state
+    // Double-check that everything is properly reset
+    if (loadedPagesRef.current.size > 0) {
+      console.log("Warning: loadedPages not empty after reset, clearing again");
+      loadedPagesRef.current = new Set();
+    }
+
+    // Reset all search state immediately
     setSearchId(newSearchId);
     currentSearchIdRef.current = newSearchId;
-    loadedPagesRef.current = new Set();
 
     // Reset UI state
     setCurrentPage(1);
@@ -662,6 +701,46 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     setHasMoreResults(false);
     setIsLoadingProperties(false);
     setLoadingMore(false);
+    setUsedSimplifiedPolygon(false);
+
+    // Also clear these states to force complete reset
+    setGeoJsonData(null);
+    setPolygonCoordinates(null);
+
+    // Log the complete state reset
+    console.log(
+      `Complete reset for location change to: ${
+        locationResult?.name_4 ||
+        locationResult?.name_3 ||
+        locationResult?.name_2 ||
+        locationResult?.name_1 ||
+        "unknown"
+      } (Level ${locationResult?.level})`
+    );
+
+    // Add a small delay before allowing new searches to prevent race conditions
+    const preventSearchTimer = setTimeout(() => {
+      // Double-check that everything is properly reset
+      if (loadedPagesRef.current.size > 0) {
+        console.log(
+          "Warning: loadedPages not empty after location change, clearing again"
+        );
+        loadedPagesRef.current = new Set();
+      }
+    }, 100);
+
+    // Cleanup function
+    return () => {
+      clearTimeout(preventSearchTimer);
+      // Abort any pending requests when unmounting or changing location again
+      for (const controller of abortControllersRef.current.values()) {
+        try {
+          controller.abort();
+        } catch {
+          // Ignore abort errors
+        }
+      }
+    };
   }, [locationResult]);
 
   useEffect(() => {
@@ -750,6 +829,21 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       pointCenter?: [number, number],
       pointRadius?: number
     ) => {
+      // Generate a unique request ID for this specific fetch operation
+      const requestId = `req_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 8)}`;
+
+      // Capture the current location level at the time the request is made
+      const currentLocationLevel = locationResult?.level;
+      const currentLocationId = locationResult?.id;
+      const currentLocationName =
+        locationResult?.name_4 ||
+        locationResult?.name_3 ||
+        locationResult?.name_2 ||
+        locationResult?.name_1 ||
+        "unknown";
+
       // For point search, create a specific request payload
       if (isPointSearch && pointCenter && pointRadius) {
         // Skip if we already loaded this page for the current search
@@ -758,7 +852,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           searchId === currentSearchIdRef.current
         ) {
           console.log(
-            `Point search page ${page} already loaded for searchId: ${searchId}, skipping`
+            `[${requestId}] Point search page ${page} already loaded for searchId: ${searchId}, skipping`
           );
           return;
         }
@@ -772,13 +866,19 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         // Create abort controller for this request
         const controller = new AbortController();
-        abortControllersRef.current.set(
-          `${currentSearchId}_page${page}`,
-          controller
-        );
+        const controllerKey = `${currentSearchId}_page${page}_${requestId}`;
+        abortControllersRef.current.set(controllerKey, controller);
 
         console.log(
-          `Fetching point-radius properties page ${page} with searchId: ${currentSearchId} at [${pointCenter[0]}, ${pointCenter[1]}] with radius ${pointRadius}m`
+          `[${requestId}] Fetching point-radius properties page ${page} with searchId: ${currentSearchId} at [${
+            pointCenter[0]
+          }, ${pointCenter[1]}] with radius ${pointRadius}m for location: ${
+            locationResult?.name_4 ||
+            locationResult?.name_3 ||
+            locationResult?.name_2 ||
+            locationResult?.name_1 ||
+            "unknown"
+          }, level: ${locationResult?.level}`
         );
 
         if (page === 1) {
@@ -799,8 +899,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Cache-Control": "no-cache, no-store, must-revalidate",
+              "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
               Pragma: "no-cache",
+              Expires: "0",
+              // Add unique timestamp to help with cache busting
+              "X-Request-Time": Date.now().toString(),
+              // Add location level to request headers for tracing
+              "X-Location-Level": String(currentLocationLevel || ""),
+              "X-Location-ID": currentLocationId || "",
+              "X-Location-Name": currentLocationName,
             },
             body: JSON.stringify({
               geometry_type: "Point",
@@ -810,6 +917,11 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               page,
               per_page: PAGE_SIZE,
               searchId: currentSearchId, // Include search ID with request
+              location_level: currentLocationLevel, // Include location level for filtering
+              location_id: currentLocationId, // Include location ID for filtering
+              location_name: currentLocationName, // Include location name for better identification
+              // Add a timestamp to ensure each request is unique
+              timestamp: Date.now(),
             }),
             cache: "no-store",
             signal: controller.signal,
@@ -817,7 +929,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           });
 
           // Handle response the same way as polygon search
-          abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
+          abortControllersRef.current.delete(controllerKey);
 
           if (!response.ok) {
             throw new Error(`API responded with status: ${response.status}`);
@@ -825,11 +937,45 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
           const data = await response.json();
 
-          // Only update state if the search ID hasn't changed
-          if (currentSearchId === searchId) {
+          // First verify that the location hasn't changed since we started the request
+          if (
+            currentLocationLevel !== locationResult?.level ||
+            currentLocationId !== locationResult?.id
+          ) {
+            console.log(
+              `[${requestId}] Location changed during request (was: level ${currentLocationLevel} / id ${currentLocationId}, now: level ${locationResult?.level} / id ${locationResult?.id}), discarding results`
+            );
+            return;
+          }
+
+          // Only update state if the search ID hasn't changed and matches current search
+          if (
+            currentSearchId === searchId &&
+            currentSearchId === currentSearchIdRef.current
+          ) {
+            // Double check the response has our search ID to prevent mixed results
+            if (data.searchId && data.searchId !== currentSearchId) {
+              console.log(
+                `[${requestId}] Response searchId ${data.searchId} doesn't match current searchId ${currentSearchId}, discarding results`
+              );
+              return;
+            }
+
+            // Check if server did additional simplification
+            if (
+              data.simplificationApplied &&
+              !usedSimplifiedPolygonRef.current
+            ) {
+              setUsedSimplifiedPolygon(true);
+              usedSimplifiedPolygonRef.current = true;
+            }
+
             if (data.properties && Array.isArray(data.properties)) {
               if (page === 1) {
                 // First page - replace existing properties
+                console.log(
+                  `[${requestId}] Setting initial properties for ${currentLocationName} (level ${currentLocationLevel})`
+                );
                 setProperties(data.properties);
               } else {
                 // Subsequent pages - append to existing properties
@@ -847,6 +993,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                       !existingIds.has(p.id || p.document_id)
                   );
 
+                  console.log(
+                    `[${requestId}] Adding ${newProperties.length} more properties for ${currentLocationName} (level ${currentLocationLevel})`
+                  );
                   return [...prevProperties, ...newProperties];
                 });
               }
@@ -862,16 +1011,23 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
               setUsingSampleData(!!data.usingSampleData);
               console.log(
-                `Found ${data.count || 0} properties in radius, loaded ${
+                `[${requestId}] Found ${
+                  data.count || 0
+                } properties in radius, loaded ${
                   page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
                 } for searchId: ${currentSearchId}`
               );
 
               // Auto-load next page if there are more results
-              if (hasMore) {
+              if (hasMore && isAutoLoading) {
                 // Use a slight delay to avoid overwhelming the server
                 setTimeout(() => {
-                  if (currentSearchId === searchId && isAutoLoading) {
+                  // Triple check that the location and search ID haven't changed
+                  if (
+                    currentSearchId === searchId &&
+                    currentLocationLevel === locationResult?.level &&
+                    currentLocationId === locationResult?.id
+                  ) {
                     fetchProperties(
                       [],
                       page + 1,
@@ -889,29 +1045,46 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 setHasMoreResults(false);
               }
               console.log(
-                `No properties found in radius for searchId: ${currentSearchId}`
+                `[${requestId}] No properties found in radius for searchId: ${currentSearchId}`
               );
             }
+          } else {
+            console.log(
+              `[${requestId}] Ignoring stale search results for searchId: ${currentSearchId}, current is: ${searchId}`
+            );
           }
         } catch (error: unknown) {
           // Don't report errors for aborted requests
           if (error instanceof Error && error.name !== "AbortError") {
             console.error(
-              `Error fetching point properties for searchId ${currentSearchId}:`,
+              `[${requestId}] Error fetching point properties for searchId ${currentSearchId}:`,
               error
             );
 
-            if (currentSearchId === searchId && page === 1) {
+            if (
+              currentSearchId === searchId &&
+              page === 1 &&
+              currentLocationLevel === locationResult?.level &&
+              currentLocationId === locationResult?.id
+            ) {
               // Use sample data as fallback
               handleFetchError([]);
             }
+          } else if (error instanceof Error && error.name === "AbortError") {
+            console.log(
+              `[${requestId}] Request was aborted for searchId: ${currentSearchId}`
+            );
           }
         } finally {
           // Clean up the controller if it wasn't already removed
-          abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
+          abortControllersRef.current.delete(controllerKey);
 
-          // Only update loading state if this search is still current
-          if (currentSearchId === searchId) {
+          // Only update loading state if this search is still current and location hasn't changed
+          if (
+            currentSearchId === searchId &&
+            currentLocationLevel === locationResult?.level &&
+            currentLocationId === locationResult?.id
+          ) {
             if (page === 1) {
               setIsLoadingProperties(false);
             } else {
@@ -988,8 +1161,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
             Pragma: "no-cache",
+            Expires: "0",
+            // Add unique timestamp to help with cache busting
+            "X-Request-Time": Date.now().toString(),
+            // Add location info to headers
+            "X-Location-Level": String(currentLocationLevel || ""),
+            "X-Location-ID": currentLocationId || "",
+            "X-Location-Name": currentLocationName,
           },
           body: JSON.stringify({
             coordinates: simplifiedCoordinates, // Send simplified coordinates
@@ -997,6 +1177,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             page,
             per_page: PAGE_SIZE,
             searchId: currentSearchId, // Include search ID with request
+            // Add location info
+            location_level: currentLocationLevel,
+            location_id: currentLocationId,
+            location_name: currentLocationName,
+            // Add a timestamp to ensure each request is unique
+            timestamp: Date.now(),
           }),
           cache: "no-store",
           signal: controller.signal,
@@ -1012,8 +1198,30 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         const data = await response.json();
 
-        // Only update state if the search ID hasn't changed
-        if (currentSearchId === searchId) {
+        // First verify that the location hasn't changed since we started the request
+        if (
+          currentLocationLevel !== locationResult?.level ||
+          currentLocationId !== locationResult?.id
+        ) {
+          console.log(
+            `[${requestId}] Location changed during request (was: level ${currentLocationLevel} / id ${currentLocationId}, now: level ${locationResult?.level} / id ${locationResult?.id}), discarding results`
+          );
+          return;
+        }
+
+        // Only update state if the search ID hasn't changed and matches current search
+        if (
+          currentSearchId === searchId &&
+          currentSearchId === currentSearchIdRef.current
+        ) {
+          // Double check the response has our search ID to prevent mixed results
+          if (data.searchId && data.searchId !== currentSearchId) {
+            console.log(
+              `[${requestId}] Response searchId ${data.searchId} doesn't match current searchId ${currentSearchId}, discarding results`
+            );
+            return;
+          }
+
           // Check if server did additional simplification
           if (data.simplificationApplied && !usedSimplifiedPolygonRef.current) {
             setUsedSimplifiedPolygon(true);
@@ -1023,6 +1231,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           if (data.properties && Array.isArray(data.properties)) {
             if (page === 1) {
               // First page - replace existing properties
+              console.log(
+                `[${requestId}] Setting initial properties for ${currentLocationName} (level ${currentLocationLevel})`
+              );
               setProperties(data.properties);
             } else {
               // Subsequent pages - append to existing properties
@@ -1040,6 +1251,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                     !existingIds.has(p.id || p.document_id)
                 );
 
+                console.log(
+                  `[${requestId}] Adding ${newProperties.length} more properties for ${currentLocationName} (level ${currentLocationLevel})`
+                );
                 return [...prevProperties, ...newProperties];
               });
             }
@@ -1112,7 +1326,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [searchId, handleFetchError]
+    [searchId, handleFetchError, locationResult]
   );
 
   // Use geometry directly from location when available
