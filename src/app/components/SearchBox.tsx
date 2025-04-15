@@ -70,31 +70,53 @@ async function fetchLocationCount(hit: LocationDocument): Promise<number> {
       if (hit.point_lat && hit.point_lng && hit.radius) {
         // Calculate radius in km for Typesense
         const radiusKm = hit.radius / 1000;
+        console.log(
+          `[Count] Using radius of ${radiusKm}km for point search at [${hit.point_lat}, ${hit.point_lng}]`
+        );
 
         const response = await fetch("/api/properties/search", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Cache-Control": "no-cache, no-store, must-revalidate",
-            "X-Count-Only": "true", // Signal this is just a count request
+            "X-Count-Only": "true",
+            Pragma: "no-cache",
+            Expires: "0",
+            "X-Request-Time": Date.now().toString(),
+            "X-Location-Level": hit.level.toString(),
+            "X-Location-ID": hit.id || "",
+            "X-Location-Name":
+              hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
           },
           body: JSON.stringify({
             filter_by: `_geoloc:(${hit.point_lat}, ${hit.point_lng}, ${radiusKm} km)`,
             query: "*",
-            per_page: 0, // We only need the count, not actual results
+            per_page: 0,
             searchId: countSearchId,
-            count_only: true, // Special flag for our API to only return count
+            count_only: true,
             location_level: hit.level,
             location_id: hit.id,
             location_name:
               hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
+            timestamp: Date.now(), // Add timestamp to prevent caching
           }),
+          cache: "no-store",
+          next: { revalidate: 0 }, // NextJS-specific: don't cache this request
         });
 
         if (response.ok) {
           const data = await response.json();
+          console.log(
+            `[Count] Found ${data.count || 0} properties for ${
+              hit.name_4 || hit.name_3 || "location"
+            }`
+          );
           return data.count || 0;
         }
+
+        console.error(
+          `[Count] API error: ${response.status} ${response.statusText}`
+        );
       }
     }
     // For levels 0-3 (polygon locations), use polygon search
@@ -105,31 +127,52 @@ async function fetchLocationCount(hit: LocationDocument): Promise<number> {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache, no-store, must-revalidate",
           "X-Count-Only": "true",
+          Pragma: "no-cache",
+          Expires: "0",
+          "X-Request-Time": Date.now().toString(),
+          "X-Location-Level": hit.level.toString(),
+          "X-Location-ID": hit.id || "",
+          "X-Location-Name":
+            hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
         },
         body: JSON.stringify({
           coordinates_json: hit.coordinates_json,
           geometry_type: hit.geometry_type,
           query: "*",
-          per_page: 0, // We only need the count
+          per_page: 0,
           searchId: countSearchId,
           count_only: true,
           location_level: hit.level,
           location_id: hit.id,
           location_name: hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
+          timestamp: Date.now(), // Add timestamp to prevent caching
         }),
+        cache: "no-store",
+        next: { revalidate: 0 }, // NextJS-specific: don't cache this request
       });
 
       if (response.ok) {
         const data = await response.json();
+        console.log(
+          `[Count] Found ${data.count || 0} properties for ${
+            hit.name_3 || hit.name_2 || hit.name_1 || "location"
+          }`
+        );
         return data.count || 0;
       }
+
+      console.error(
+        `[Count] API error: ${response.status} ${response.statusText}`
+      );
     }
   } catch (error) {
-    console.error("Error fetching property count:", error);
+    console.error("[Count] Error fetching property count:", error);
   }
 
   // Fall back to a random count between 1-1000 if fetch fails
-  return Math.floor(Math.random() * 1000) + 1;
+  const randomCount = Math.floor(Math.random() * 1000) + 1;
+  console.log("[Count] Using fallback random count:", randomCount);
+  return randomCount;
 }
 
 // Separate component for a location item
@@ -164,7 +207,7 @@ function LocationItem({
     <button
       key={hit.id || index}
       id={`location-${index}`}
-      className={`w-full text-left cursor-pointer px-4 py-2 ${
+      className={`w-full text-left cursor-pointer px-4  py-2 ${
         index === activeIndex
           ? "bg-indigo-600 text-white"
           : "hover:bg-gray-100 text-gray-900"
@@ -429,7 +472,7 @@ export default function SearchBox({
       {showSuggestions && hits.length > 0 && (
         <div
           ref={suggestionsRef}
-          className="absolute mt-2 max-h-96 w-full overflow-y-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5"
+          className="absolute mt-2 max-h-96 w-full overflow-y-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 z-50"
           id="location-suggestions"
         >
           <div className="w-full">
