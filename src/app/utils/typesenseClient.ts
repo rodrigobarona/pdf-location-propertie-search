@@ -1,6 +1,6 @@
 import Typesense from "typesense";
 
-// Initialize Typesense client
+// Initialize Typesense client for the app
 export const typesenseClient = new Typesense.Client({
   apiKey: process.env.TYPESENSE_ADMIN_KEY || "",
   nodes: [

@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       useSampleData?: boolean;
       page?: number;
       per_page?: number;
+      searchId?: string;
     } = await request.json();
 
     const {
@@ -41,7 +42,13 @@ export async function POST(request: Request) {
       useSampleData,
       page = 1,
       per_page = 250,
+      searchId,
     } = body;
+
+    // Log the search ID to help with debugging
+    if (searchId) {
+      console.log(`Processing search request with ID: ${searchId}`);
+    }
 
     // Return sample data if explicitly requested
     if (useSampleData) {
@@ -50,6 +57,7 @@ export async function POST(request: Request) {
         properties: sampleProperties,
         count: sampleProperties.length,
         usingSampleData: true,
+        searchId,
       });
     }
 
@@ -94,6 +102,7 @@ export async function POST(request: Request) {
           properties: searchResults.hits?.map((hit) => hit.document) || [],
           count: searchResults.hits?.length || 0,
           searchType: "text",
+          searchId,
         });
       } catch (error) {
         console.error("Error performing text search:", error);
@@ -103,6 +112,7 @@ export async function POST(request: Request) {
             details: error instanceof Error ? error.message : String(error),
             properties: sampleProperties.slice(0, 10), // Just return a few samples for text search
             usingSampleData: true,
+            searchId,
           },
           { status: 500 }
         );
@@ -162,6 +172,7 @@ export async function POST(request: Request) {
             searchType: "radius",
             page: page,
             per_page: per_page,
+            searchId,
           });
         }
       } catch (error) {
@@ -170,6 +181,7 @@ export async function POST(request: Request) {
           {
             error: "Failed to parse point coordinates",
             details: error instanceof Error ? error.message : String(error),
+            searchId,
           },
           { status: 400 }
         );
@@ -320,6 +332,7 @@ export async function POST(request: Request) {
             "Invalid coordinates. Provide an array of at least 6 numbers (3 points)",
           details:
             "Format should be [lat1, lng1, lat2, lng2, ...] or a valid coordinates_json field",
+          searchId,
         },
         { status: 400 }
       );
@@ -339,6 +352,25 @@ export async function POST(request: Request) {
     // Typesense requires the format: _geoloc:(lat1, lng1, lat2, lng2, ...)
     const polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
 
+    // Check if the filter string is too long for Typesense (limit is 4000 characters)
+    if (polygonFilterString.length > 3900) {
+      console.warn(
+        `Polygon filter string too long: ${polygonFilterString.length} chars (Typesense limit is 4000)`
+      );
+
+      // Return sample data instead of error for better user experience
+      console.log("Returning sample data for oversized polygon query");
+      return NextResponse.json({
+        properties: sampleProperties.slice(0, 20), // Return limited sample data
+        count: sampleProperties.length,
+        searchType: "polygon",
+        points: searchCoordinates.length / 2,
+        filterLength: polygonFilterString.length,
+        usingSampleData: true,
+        searchId,
+      });
+    }
+
     // Perform a direct polygon search with pagination
     const searchParameters = {
       q: query,
@@ -350,7 +382,9 @@ export async function POST(request: Request) {
 
     console.log("Typesense search parameters:", {
       ...searchParameters,
-      filter_by: `polygon with ${searchCoordinates.length / 2} points`, // Simplified log
+      filter_by: `polygon with ${searchCoordinates.length / 2} points (${
+        polygonFilterString.length
+      } chars)`, // Enhanced logging
       page: page,
       per_page: per_page,
     });
@@ -376,6 +410,7 @@ export async function POST(request: Request) {
         points: searchCoordinates.length / 2,
         page: page,
         per_page: per_page,
+        searchId,
       });
     } catch (error) {
       console.error("Error searching properties in polygon:", error);
@@ -387,6 +422,7 @@ export async function POST(request: Request) {
           details: error instanceof Error ? error.message : String(error),
           properties: sampleProperties,
           usingSampleData: true,
+          searchId,
         },
         { status: 500 }
       );

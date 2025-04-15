@@ -1,6 +1,6 @@
 "use client";
 
-// Correct import for client components
+// Correct import for client components in the app
 import TypesenseInstantSearchAdapter from "typesense-instantsearch-adapter";
 import { COLLECTION_LOCATIONS } from "./typesenseClient";
 
