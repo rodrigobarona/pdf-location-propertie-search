@@ -28,6 +28,8 @@ export async function POST(request: Request) {
       geometry_type?: string;
       radius?: number;
       useSampleData?: boolean;
+      page?: number;
+      per_page?: number;
     } = await request.json();
 
     const {
@@ -37,6 +39,8 @@ export async function POST(request: Request) {
       geometry_type,
       radius,
       useSampleData,
+      page = 1,
+      per_page = 250,
     } = body;
 
     // Return sample data if explicitly requested
@@ -129,13 +133,14 @@ export async function POST(request: Request) {
             `Performing radius search at [${lat}, ${lng}] with radius ${radiusKm} km`
           );
 
-          // Perform a radius search
+          // Perform a radius search with pagination
           const searchParameters = {
             q: query,
             query_by: "title,address,description",
             filter_by: radiusFilterString,
             sort_by: `_geoloc(${lat}, ${lng}):asc`, // Sort by distance from center
-            per_page: 250,
+            per_page: per_page,
+            page: page,
           };
 
           const searchResults = (await typesenseClient
@@ -144,13 +149,19 @@ export async function POST(request: Request) {
             .search(searchParameters)) as SearchResponse;
 
           console.log(
-            `Found ${searchResults.hits?.length || 0} properties within radius`
+            `Found ${
+              searchResults.found || 0
+            } properties within radius, returning page ${page} with ${
+              searchResults.hits?.length || 0
+            } properties`
           );
 
           return NextResponse.json({
             properties: searchResults.hits?.map((hit) => hit.document) || [],
-            count: searchResults.hits?.length || 0,
+            count: searchResults.found || 0,
             searchType: "radius",
+            page: page,
+            per_page: per_page,
           });
         }
       } catch (error) {
@@ -328,17 +339,20 @@ export async function POST(request: Request) {
     // Typesense requires the format: _geoloc:(lat1, lng1, lat2, lng2, ...)
     const polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
 
-    // Perform a direct polygon search
+    // Perform a direct polygon search with pagination
     const searchParameters = {
       q: query,
       query_by: "title,address,description",
       filter_by: polygonFilterString,
-      per_page: 250,
+      per_page: per_page,
+      page: page,
     };
 
     console.log("Typesense search parameters:", {
       ...searchParameters,
       filter_by: `polygon with ${searchCoordinates.length / 2} points`, // Simplified log
+      page: page,
+      per_page: per_page,
     });
 
     try {
@@ -348,14 +362,20 @@ export async function POST(request: Request) {
         .search(searchParameters)) as SearchResponse;
 
       console.log(
-        `Found ${searchResults.hits?.length || 0} properties inside the polygon`
+        `Found ${
+          searchResults.found || 0
+        } properties inside the polygon, returning page ${page} with ${
+          searchResults.hits?.length || 0
+        } properties`
       );
 
       return NextResponse.json({
         properties: searchResults.hits?.map((hit) => hit.document) || [],
-        count: searchResults.hits?.length || 0,
+        count: searchResults.found || 0,
         searchType: "polygon",
         points: searchCoordinates.length / 2,
+        page: page,
+        per_page: per_page,
       });
     } catch (error) {
       console.error("Error searching properties in polygon:", error);

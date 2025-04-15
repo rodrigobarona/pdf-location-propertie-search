@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -384,9 +384,246 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     null
   );
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalHits, setTotalHits] = useState(0);
+  const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 250;
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Helper function to handle fetch errors
+  const handleFetchError = useCallback(async (coordinates: number[]) => {
+    // Use sample data if fetch fails, but only if component is still mounted
+    try {
+      const sampleResponse = await fetch("/api/properties/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          coordinates,
+          useSampleData: true,
+        }),
+      });
+
+      if (sampleResponse.ok) {
+        const sampleData = await sampleResponse.json();
+        setProperties(sampleData.properties || []);
+      } else {
+        setProperties([]);
+      }
+      setUsingSampleData(true);
+    } catch (error) {
+      console.error("Error fetching sample data:", error);
+      setProperties([]);
+      setUsingSampleData(false);
+    }
+  }, []);
+
+  // Function to fetch properties within a polygon
+  const fetchProperties = useCallback(
+    async (coordinates: number[], page = 1) => {
+      const isMounted = true; // Flag to track component mount state
+      if (page === 1) {
+        setIsLoadingProperties(true);
+      } else {
+        setLoadingMore(true);
+      }
+      setUsingSampleData(false);
+
+      try {
+        const response = await fetch("/api/properties/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coordinates,
+            query: "*", // Default query to match all documents
+            page,
+            per_page: PAGE_SIZE,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API responded with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Only update state if component is still mounted
+        if (isMounted) {
+          if (data.properties && Array.isArray(data.properties)) {
+            if (page === 1) {
+              // First page - replace existing properties
+              setProperties(data.properties);
+            } else {
+              // Subsequent pages - append to existing properties
+              setProperties((prevProperties) => [
+                ...prevProperties,
+                ...data.properties,
+              ]);
+            }
+
+            // Update total count
+            setTotalHits(data.count || 0);
+
+            // Check if there are more results to load
+            const totalFetched = page * PAGE_SIZE;
+            setHasMoreResults(totalFetched < (data.count || 0));
+            setCurrentPage(page);
+
+            setUsingSampleData(!!data.usingSampleData);
+            console.log(
+              `Found ${data.count || 0} properties in polygon, loaded ${
+                page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
+              } (${data.points || coordinates.length / 2} points)`
+            );
+          } else {
+            if (page === 1) {
+              setProperties([]);
+            }
+            console.log("No properties found in polygon");
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching properties:", error);
+        if (page === 1) {
+          handleFetchError(coordinates);
+        }
+      } finally {
+        if (isMounted) {
+          if (page === 1) {
+            setIsLoadingProperties(false);
+          } else {
+            setLoadingMore(false);
+          }
+        }
+      }
+    },
+    [handleFetchError]
+  );
+
+  // Function to load more properties
+  const loadMoreProperties = useCallback(() => {
+    if (hasMoreResults && !loadingMore && polygonCoordinates) {
+      const nextPage = currentPage + 1;
+      fetchProperties(polygonCoordinates, nextPage);
+    }
+  }, [
+    hasMoreResults,
+    loadingMore,
+    polygonCoordinates,
+    currentPage,
+    fetchProperties,
+  ]);
+
+  // Function to fetch properties within a radius around a point
+  const fetchPointProperties = useCallback(
+    async (center: [number, number], radius: number) => {
+      const isMounted = true; // Flag to track component mount state
+      setIsLoadingProperties(true);
+      setUsingSampleData(false);
+
+      try {
+        // If we have the original coordinates_json, use it directly
+        const requestBody: {
+          coordinates_json: string;
+          geometry_type: string;
+          radius: number;
+          useSampleData?: boolean;
+        } = {
+          coordinates_json: "",
+          geometry_type: "Point",
+          radius,
+        };
+
+        if (
+          locationResult?.coordinates_json &&
+          locationResult.geometry_type === "Point"
+        ) {
+          requestBody.coordinates_json = locationResult.coordinates_json;
+        } else {
+          // Fallback: construct a GeoJSON point if we don't have the original
+          const [lat, lng] = center;
+          requestBody.coordinates_json = JSON.stringify({
+            type: "Point",
+            coordinates: [lng, lat], // GeoJSON uses [lng, lat] format
+          });
+        }
+
+        console.log("Fetching properties around point:", requestBody);
+
+        const response = await fetch("/api/properties/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API responded with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Only update state if component is still mounted
+        if (isMounted) {
+          if (data.properties && Array.isArray(data.properties)) {
+            setProperties(data.properties);
+            setUsingSampleData(!!data.usingSampleData);
+          } else {
+            setProperties([]);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching properties around point:", error);
+
+        // Try to fetch sample data on error
+        try {
+          const [lat, lng] = center;
+
+          const sampleResponse = await fetch("/api/properties/search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              coordinates_json: JSON.stringify({
+                type: "Point",
+                coordinates: [lng, lat],
+              }),
+              geometry_type: "Point",
+              radius,
+              useSampleData: true,
+            }),
+          });
+
+          if (sampleResponse.ok) {
+            const sampleData = await sampleResponse.json();
+            setProperties(sampleData.properties || []);
+          } else {
+            setProperties([]);
+          }
+          setUsingSampleData(true);
+        } catch (sampleError) {
+          console.error("Error fetching sample data for point:", sampleError);
+          setProperties([]);
+          setUsingSampleData(false);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingProperties(false);
+        }
+      }
+    },
+    [locationResult]
+  );
 
   // Use geometry directly from location when available, otherwise extract from GeoJSON
   useEffect(() => {
@@ -488,200 +725,36 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   useEffect(() => {
     // For polygon search: check if we have valid polygon coordinates
     if (polygonCoordinates && polygonCoordinates.length >= 6) {
-      fetchProperties(polygonCoordinates);
+      // Reset pagination when coordinates change
+      setCurrentPage(1);
+      setProperties([]);
+      setTotalHits(0);
+      fetchProperties(polygonCoordinates, 1);
       return;
     }
 
     // For point search: check if we have a point location
     if (isPointLocation && pointCenter && pointRadius) {
+      // Reset pagination when point changes
+      setCurrentPage(1);
+      setProperties([]);
+      setTotalHits(0);
       fetchPointProperties(pointCenter, pointRadius);
       return;
     }
 
     // Clear properties if no valid search parameters
     setProperties([]);
-  }, [polygonCoordinates, isPointLocation, pointCenter, pointRadius]);
-
-  // Function to fetch properties within a polygon
-  const fetchProperties = async (coordinates: number[]) => {
-    const isMounted = true; // Flag to track component mount state
-    setIsLoadingProperties(true);
-    setUsingSampleData(false);
-
-    try {
-      const response = await fetch("/api/properties/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          coordinates,
-          query: "*", // Default query to match all documents
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Only update state if component is still mounted
-      if (isMounted) {
-        if (data.properties && Array.isArray(data.properties)) {
-          setProperties(data.properties);
-          setUsingSampleData(!!data.usingSampleData);
-          console.log(
-            `Found ${data.properties.length} properties in polygon (${
-              data.points || coordinates.length / 2
-            } points)`
-          );
-        } else {
-          setProperties([]);
-          console.log("No properties found in polygon");
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching properties:", error);
-      handleFetchError(coordinates);
-    } finally {
-      if (isMounted) {
-        setIsLoadingProperties(false);
-      }
-    }
-  };
-
-  // Function to fetch properties within a radius around a point
-  const fetchPointProperties = async (
-    center: [number, number],
-    radius: number
-  ) => {
-    const isMounted = true; // Flag to track component mount state
-    setIsLoadingProperties(true);
-    setUsingSampleData(false);
-
-    try {
-      // If we have the original coordinates_json, use it directly
-      const requestBody: {
-        coordinates_json: string;
-        geometry_type: string;
-        radius: number;
-        useSampleData?: boolean;
-      } = {
-        coordinates_json: "",
-        geometry_type: "Point",
-        radius,
-      };
-
-      if (
-        locationResult?.coordinates_json &&
-        locationResult.geometry_type === "Point"
-      ) {
-        requestBody.coordinates_json = locationResult.coordinates_json;
-      } else {
-        // Fallback: construct a GeoJSON point if we don't have the original
-        const [lat, lng] = center;
-        requestBody.coordinates_json = JSON.stringify({
-          type: "Point",
-          coordinates: [lng, lat], // GeoJSON uses [lng, lat] format
-        });
-      }
-
-      console.log("Fetching properties around point:", requestBody);
-
-      const response = await fetch("/api/properties/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Only update state if component is still mounted
-      if (isMounted) {
-        if (data.properties && Array.isArray(data.properties)) {
-          setProperties(data.properties);
-          setUsingSampleData(!!data.usingSampleData);
-        } else {
-          setProperties([]);
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching properties around point:", error);
-
-      // Try to fetch sample data on error
-      try {
-        const [lat, lng] = center;
-
-        const sampleResponse = await fetch("/api/properties/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            coordinates_json: JSON.stringify({
-              type: "Point",
-              coordinates: [lng, lat],
-            }),
-            geometry_type: "Point",
-            radius,
-            useSampleData: true,
-          }),
-        });
-
-        if (sampleResponse.ok) {
-          const sampleData = await sampleResponse.json();
-          setProperties(sampleData.properties || []);
-        } else {
-          setProperties([]);
-        }
-        setUsingSampleData(true);
-      } catch (sampleError) {
-        console.error("Error fetching sample data for point:", sampleError);
-        setProperties([]);
-        setUsingSampleData(false);
-      }
-    } finally {
-      if (isMounted) {
-        setIsLoadingProperties(false);
-      }
-    }
-  };
-
-  // Helper function to handle fetch errors
-  const handleFetchError = async (coordinates: number[]) => {
-    // Use sample data if fetch fails, but only if component is still mounted
-    try {
-      const sampleResponse = await fetch("/api/properties/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          coordinates,
-          useSampleData: true,
-        }),
-      });
-
-      if (sampleResponse.ok) {
-        const sampleData = await sampleResponse.json();
-        setProperties(sampleData.properties || []);
-      } else {
-        setProperties([]);
-      }
-      setUsingSampleData(true);
-    } catch (error) {
-      console.error("Error fetching sample data:", error);
-      setProperties([]);
-      setUsingSampleData(false);
-    }
-  };
+    setTotalHits(0);
+    setHasMoreResults(false);
+  }, [
+    polygonCoordinates,
+    isPointLocation,
+    pointCenter,
+    pointRadius,
+    fetchProperties,
+    fetchPointProperties,
+  ]);
 
   useEffect(() => {
     if (!locationResult) {
@@ -915,12 +988,33 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             Loading properties...
           </p>
         ) : properties.length > 0 ? (
-          <p>
-            {properties.length} properties found
-            {usingSampleData && (
-              <span className="text-yellow-600 ml-1">(Sample data)</span>
+          <div>
+            <p>
+              {properties.length}{" "}
+              {totalHits > properties.length ? `of ${totalHits}` : ""}{" "}
+              properties found
+              {usingSampleData && (
+                <span className="text-yellow-600 ml-1">(Sample data)</span>
+              )}
+            </p>
+            {hasMoreResults && (
+              <button
+                type="button"
+                onClick={loadMoreProperties}
+                disabled={loadingMore}
+                className="mt-1 text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded w-full"
+              >
+                {loadingMore ? (
+                  <span className="flex items-center justify-center">
+                    <span className="inline-block w-2 h-2 mr-1 rounded-full bg-white animate-pulse" />
+                    Loading...
+                  </span>
+                ) : (
+                  `Load more (${totalHits - properties.length} remaining)`
+                )}
+              </button>
             )}
-          </p>
+          </div>
         ) : polygonCoordinates ? (
           <p>No properties found in this area</p>
         ) : (
