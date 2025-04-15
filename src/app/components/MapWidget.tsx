@@ -366,6 +366,13 @@ interface MapWidgetProps {
   locationResult: LocationDocument | null;
 }
 
+// Generate a unique search ID with timestamp and random string
+function generateSearchId(): string {
+  const timestamp = Date.now(); // Current time in milliseconds
+  const random = Math.random().toString(36).substring(2, 10); // Random alphanumeric string
+  return `${timestamp}-${random}`;
+}
+
 // Main map widget
 const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [isMounted, setIsMounted] = useState(false);
@@ -391,43 +398,94 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 250;
 
+  // Search ID tracking
+  const [searchId, setSearchId] = useState<string>(() => generateSearchId());
+  const currentSearchIdRef = useRef<string>("");
+
+  // Generate a new search ID when location changes
+  useEffect(() => {
+    const newSearchId = generateSearchId();
+    console.log(
+      `Generating new search ID: ${newSearchId} for location: ${
+        locationResult?.name_1 || locationResult?.name_2 || "unknown"
+      }`
+    );
+    setSearchId(newSearchId);
+    currentSearchIdRef.current = newSearchId;
+  }, [locationResult]);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
   // Helper function to handle fetch errors
-  const handleFetchError = useCallback(async (coordinates: number[]) => {
-    // Use sample data if fetch fails, but only if component is still mounted
-    try {
-      const sampleResponse = await fetch("/api/properties/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          coordinates,
-          useSampleData: true,
-        }),
-      });
+  const handleFetchError = useCallback(
+    async (coordinates: number[]) => {
+      // Capture current search ID
+      const currentSearchId = searchId;
 
-      if (sampleResponse.ok) {
-        const sampleData = await sampleResponse.json();
-        setProperties(sampleData.properties || []);
-      } else {
-        setProperties([]);
+      // Use sample data if fetch fails, but only if component is still mounted
+      try {
+        console.log(
+          `Fetching sample data as fallback for searchId: ${currentSearchId}`
+        );
+
+        const sampleResponse = await fetch("/api/properties/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coordinates,
+            useSampleData: true,
+            searchId: currentSearchId,
+          }),
+        });
+
+        // Only process response if the search ID hasn't changed
+        if (currentSearchId === searchId) {
+          if (sampleResponse.ok) {
+            const sampleData = await sampleResponse.json();
+            setProperties(sampleData.properties || []);
+          } else {
+            setProperties([]);
+          }
+          setUsingSampleData(true);
+        } else {
+          console.log(
+            `Ignoring stale sample data for searchId: ${currentSearchId}, current is: ${searchId}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `Error fetching sample data for searchId ${currentSearchId}:`,
+          error
+        );
+
+        // Only update state if the search ID hasn't changed
+        if (currentSearchId === searchId) {
+          setProperties([]);
+          setUsingSampleData(false);
+        }
       }
-      setUsingSampleData(true);
-    } catch (error) {
-      console.error("Error fetching sample data:", error);
-      setProperties([]);
-      setUsingSampleData(false);
-    }
-  }, []);
+    },
+    [searchId]
+  );
 
   // Function to fetch properties within a polygon
   const fetchProperties = useCallback(
     async (coordinates: number[], page = 1) => {
-      const isMounted = true; // Flag to track component mount state
+      if (!coordinates || coordinates.length === 0) {
+        console.log("No coordinates provided for property search");
+        return;
+      }
+
+      // Capture the current search ID at the time the request is made
+      const currentSearchId = searchId;
+      console.log(
+        `Fetching properties page ${page} with searchId: ${currentSearchId}`
+      );
+
       if (page === 1) {
         setIsLoadingProperties(true);
       } else {
@@ -446,6 +504,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             query: "*", // Default query to match all documents
             page,
             per_page: PAGE_SIZE,
+            searchId: currentSearchId, // Include search ID with request
           }),
         });
 
@@ -455,8 +514,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         const data = await response.json();
 
-        // Only update state if component is still mounted
-        if (isMounted) {
+        // Only update state if the search ID hasn't changed
+        if (currentSearchId === searchId) {
           if (data.properties && Array.isArray(data.properties)) {
             if (page === 1) {
               // First page - replace existing properties
@@ -481,22 +540,34 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             console.log(
               `Found ${data.count || 0} properties in polygon, loaded ${
                 page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
-              } (${data.points || coordinates.length / 2} points)`
+              } (${
+                data.points || coordinates.length / 2
+              } points) for searchId: ${currentSearchId}`
             );
           } else {
             if (page === 1) {
               setProperties([]);
             }
-            console.log("No properties found in polygon");
+            console.log(
+              `No properties found in polygon for searchId: ${currentSearchId}`
+            );
           }
+        } else {
+          console.log(
+            `Ignoring stale search results for searchId: ${currentSearchId}, current is: ${searchId}`
+          );
         }
       } catch (error) {
-        console.error("Error fetching properties:", error);
-        if (page === 1) {
+        console.error(
+          `Error fetching properties for searchId ${currentSearchId}:`,
+          error
+        );
+        if (currentSearchId === searchId && page === 1) {
           handleFetchError(coordinates);
         }
       } finally {
-        if (isMounted) {
+        // Only update loading state if this search is still current
+        if (currentSearchId === searchId) {
           if (page === 1) {
             setIsLoadingProperties(false);
           } else {
@@ -505,7 +576,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError]
+    [handleFetchError, searchId]
   );
 
   // Function to load more properties
@@ -525,7 +596,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   // Function to fetch properties within a radius around a point
   const fetchPointProperties = useCallback(
     async (center: [number, number], radius: number) => {
-      const isMounted = true; // Flag to track component mount state
+      // Capture the current search ID at the time the request is made
+      const currentSearchId = searchId;
+      console.log(
+        `Fetching point properties with searchId: ${currentSearchId}`
+      );
+
       setIsLoadingProperties(true);
       setUsingSampleData(false);
 
@@ -536,10 +612,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           geometry_type: string;
           radius: number;
           useSampleData?: boolean;
+          searchId: string;
         } = {
           coordinates_json: "",
           geometry_type: "Point",
           radius,
+          searchId: currentSearchId, // Include search ID with request
         };
 
         if (
@@ -556,7 +634,10 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           });
         }
 
-        console.log("Fetching properties around point:", requestBody);
+        console.log(
+          `Fetching properties around point for searchId: ${currentSearchId}`,
+          requestBody
+        );
 
         const response = await fetch("/api/properties/search", {
           method: "POST",
@@ -572,57 +653,89 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         const data = await response.json();
 
-        // Only update state if component is still mounted
-        if (isMounted) {
+        // Only update state if the search ID hasn't changed
+        if (currentSearchId === searchId) {
           if (data.properties && Array.isArray(data.properties)) {
             setProperties(data.properties);
+            setTotalHits(
+              data.count || data.total_hits || data.properties.length
+            );
             setUsingSampleData(!!data.usingSampleData);
+            console.log(
+              `Found ${data.properties.length} properties for point search with searchId: ${currentSearchId}`
+            );
           } else {
             setProperties([]);
+            setTotalHits(0);
           }
+        } else {
+          console.log(
+            `Ignoring stale point search results for searchId: ${currentSearchId}`
+          );
         }
       } catch (error) {
-        console.error("Error fetching properties around point:", error);
+        console.error(
+          `Error fetching properties around point for searchId: ${currentSearchId}:`,
+          error
+        );
 
-        // Try to fetch sample data on error
-        try {
-          const [lat, lng] = center;
+        // Only try sample data if this search is still current
+        if (currentSearchId === searchId) {
+          // Try to fetch sample data on error
+          try {
+            const [lat, lng] = center;
 
-          const sampleResponse = await fetch("/api/properties/search", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              coordinates_json: JSON.stringify({
-                type: "Point",
-                coordinates: [lng, lat],
+            const sampleResponse = await fetch("/api/properties/search", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                coordinates_json: JSON.stringify({
+                  type: "Point",
+                  coordinates: [lng, lat],
+                }),
+                geometry_type: "Point",
+                radius,
+                useSampleData: true,
+                searchId: currentSearchId,
               }),
-              geometry_type: "Point",
-              radius,
-              useSampleData: true,
-            }),
-          });
+            });
 
-          if (sampleResponse.ok) {
-            const sampleData = await sampleResponse.json();
-            setProperties(sampleData.properties || []);
-          } else {
-            setProperties([]);
+            // Only process if this search is still current
+            if (currentSearchId === searchId) {
+              if (sampleResponse.ok) {
+                const sampleData = await sampleResponse.json();
+                setProperties(sampleData.properties || []);
+                setTotalHits(sampleData.properties?.length || 0);
+              } else {
+                setProperties([]);
+                setTotalHits(0);
+              }
+              setUsingSampleData(true);
+            }
+          } catch (sampleError) {
+            console.error(
+              `Error fetching sample data for point with searchId: ${currentSearchId}:`,
+              sampleError
+            );
+
+            // Only update state if this is still the current search
+            if (currentSearchId === searchId) {
+              setProperties([]);
+              setUsingSampleData(false);
+              setTotalHits(0);
+            }
           }
-          setUsingSampleData(true);
-        } catch (sampleError) {
-          console.error("Error fetching sample data for point:", sampleError);
-          setProperties([]);
-          setUsingSampleData(false);
         }
       } finally {
-        if (isMounted) {
+        // Only update loading state if this search is still current
+        if (currentSearchId === searchId) {
           setIsLoadingProperties(false);
         }
       }
     },
-    [locationResult]
+    [locationResult, searchId]
   );
 
   // Use geometry directly from location when available, otherwise extract from GeoJSON

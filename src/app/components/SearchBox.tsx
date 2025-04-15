@@ -114,6 +114,13 @@ export default function SearchBox({
 
   // Helper function to get display name for a location
   const getDisplayName = (location: LocationDocument): string => {
+    if (location.level === 0) {
+      return location.country || "Unknown Country";
+    }
+    if (location.level === 1) {
+      return location.name_1 || location.country || "Unknown Region";
+    }
+
     return (
       location.name_4 ||
       location.name_3 ||
@@ -126,11 +133,11 @@ export default function SearchBox({
 
   // Helper function to get location type label
   const getLocationTypeLabel = (location: LocationDocument): string => {
-    if (location.level === 0) return "País";
-    if (location.level === 1) return "Region (Distrito)";
-    if (location.level === 2) return "County (Concelho)";
-    if (location.level === 3) return "Parish (Freguesia)";
-    if (location.level === 4) return "Neighborhood (Bairro)";
+    if (location.level === 0) return location.type_0 || "País";
+    if (location.level === 1) return location.type_1 || "Region (Distrito)";
+    if (location.level === 2) return location.type_2 || "County (Concelho)";
+    if (location.level === 3) return location.type_3 || "Parish (Freguesia)";
+    if (location.level === 4) return location.type_4 || "Neighborhood (Bairro)";
     return `Nível ${location.level}`;
   };
 
@@ -138,14 +145,35 @@ export default function SearchBox({
   const getLocationDescription = (location: LocationDocument): string => {
     let typeDescription = "";
 
+    if (location.level === 0) {
+      typeDescription = "Country";
+      return typeDescription;
+    } 
+    
     if (location.level === 1) {
       typeDescription = location.type_1 || "District";
-    } else if (location.level === 2) {
+      return `${typeDescription} in ${location.country}`;
+    } 
+    
+    if (location.level === 2) {
       typeDescription = location.type_2 || "Municipality";
-    } else if (location.level === 3) {
+      if (location.name_1) {
+        return `${typeDescription} in ${location.name_1}`;
+      }
+    } 
+    
+    if (location.level === 3) {
       typeDescription = location.type_3 || "Parish";
-    } else if (location.level === 4) {
+      if (location.name_2) {
+        return `${typeDescription} in ${location.name_2}${location.name_1 ? `, ${location.name_1}` : ''}`;
+      }
+    } 
+    
+    if (location.level === 4) {
       typeDescription = location.type_4 || "Neighborhood";
+      if (location.name_3) {
+        return `${typeDescription} in ${location.name_3}${location.name_2 ? `, ${location.name_2}` : ''}`;
+      }
     }
 
     // Add parent region if available
@@ -226,12 +254,22 @@ export default function SearchBox({
                   <div className="flex-1">
                     <div className="flex justify-between items-center">
                       <span className="font-medium">{getDisplayName(hit)}</span>
-                      <span className="text-sm bg-gray-100 rounded-full px-2 py-0.5 text-gray-600">
+                      <span
+                        className={`text-sm rounded-full px-2 py-0.5 ${
+                          hit.level === 0
+                            ? "bg-blue-100 text-blue-700"
+                            : hit.level === 1
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
                         {getLocationCount(hit)}
                       </span>
                     </div>
                     <div className="flex flex-col text-gray-500 text-sm">
-                      <span>{getLocationTypeLabel(hit)}</span>
+                      <span className={hit.level <= 1 ? "font-medium" : ""}>
+                        {getLocationTypeLabel(hit)}
+                      </span>
                       {getLocationDescription(hit) && (
                         <span className="text-xs mt-0.5">
                           {getLocationDescription(hit)}
