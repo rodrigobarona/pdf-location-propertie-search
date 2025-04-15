@@ -298,22 +298,54 @@ function MapUpdater({ location }: { location: LocationDocument | null }) {
               }°`
             );
 
-            // Fit the map to the bounds with generous padding to ensure visibility
-            map.fitBounds(bounds, {
-              padding: [100, 100], // Increased padding from 50 to 100
-              maxZoom: 12, // Reduced max zoom to prevent zooming too far in
-            });
-
-            // Optional: Check if bounds are too small and manually adjust zoom
+            // Calculate appropriate padding based on area size
             const latSpan = bounds.getNorth() - bounds.getSouth();
             const lngSpan = bounds.getEast() - bounds.getWest();
+            const areaSize = latSpan * lngSpan;
 
-            if (latSpan < 0.05 || lngSpan < 0.05) {
-              // For very small areas, zoom out a bit more
-              setTimeout(() => {
-                map.setZoom(map.getZoom() - 1);
-              }, 100);
+            // Use smaller padding for larger areas, larger padding for smaller areas
+            let paddingAmount: number;
+            let maxZoomLevel: number;
+
+            // Adapt padding and max zoom based on region level and size
+            if (location.level === 2) {
+              // Municipality/Concelho level (like Cascais)
+              paddingAmount = 60; // Reduced padding for better visibility
+              maxZoomLevel = 12.5; // Slightly higher max zoom
+            } else if (location.level === 1) {
+              // District level
+              paddingAmount = 50;
+              maxZoomLevel = 11;
+            } else if (location.level === 0) {
+              // Country level
+              paddingAmount = 40;
+              maxZoomLevel = 9;
+            } else {
+              // Default for other cases
+              paddingAmount = 75;
+              maxZoomLevel = 13;
             }
+
+            // Additional adjustments based on area size
+            if (areaSize < 0.01) {
+              // Very small area
+              paddingAmount = 30;
+              maxZoomLevel = Math.min(14, maxZoomLevel);
+            } else if (areaSize > 0.5) {
+              // Very large area
+              paddingAmount = Math.max(20, paddingAmount - 20);
+              maxZoomLevel = Math.min(11, maxZoomLevel);
+            }
+
+            console.log(
+              `Using padding: ${paddingAmount}px, maxZoom: ${maxZoomLevel}`
+            );
+
+            // Fit the map to the bounds with appropriate padding
+            map.fitBounds(bounds, {
+              padding: [paddingAmount, paddingAmount],
+              maxZoom: maxZoomLevel,
+            });
 
             return;
           }
