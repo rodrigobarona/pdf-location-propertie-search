@@ -1,0 +1,29 @@
+{
+  "document": {
+    "coordinates_json": "{\"type\":\"Point\",\"coordinates\":[-9.1051886,39.0237047]}",
+    "country": "Portugal",
+    "engtype_4": "Neighborhood",
+    "geometry_type": "Point",
+    "gid_0": "PRT",
+    "gid_2": "sobral-de-monte-agraco",
+    "gid_4": "sobral-de-monte-agraco_zibreira-de-fetais",
+    "id": "4_sobral-de-monte-agraco_zibreira-de-fetais",
+    "level": 4,
+    "location": [39.0237047, -9.1051886],
+    "name_4": "Zibreira de Fetais",
+    "radius": 3000,
+    "type_4": "Neighborhood"
+  },
+  "highlight": {},
+  "highlights": [],
+  "text_match": 100,
+  "text_match_info": {
+    "best_field_score": "0",
+    "best_field_weight": 12,
+    "fields_matched": 4,
+    "num_tokens_dropped": 1,
+    "score": "100",
+    "tokens_matched": 0,
+    "typo_prefix_score": 255
+  }
+}

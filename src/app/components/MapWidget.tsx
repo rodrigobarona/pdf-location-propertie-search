@@ -11,7 +11,7 @@ import {
   Popup,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import type { LocationDocument } from "@/app/types/typesense";
+import type { LocationDocument, PropertyDocument } from "@/app/types/typesense";
 import L from "leaflet";
 
 // Fix the Leaflet default icon issue
@@ -103,6 +103,86 @@ function createValidGeoJSON(
   };
 }
 
+// Helper function to extract polygon coordinates for API search
+function extractPolygonCoordinates(
+  geoJsonData: GeoJSONFeature | null
+): number[] | null {
+  if (!geoJsonData || !geoJsonData.geometry) return null;
+
+  try {
+    const geometryType = geoJsonData.geometry.type;
+    const coordinates: number[] = [];
+
+    // Handle different geometry types
+    if (geometryType === "Polygon") {
+      // For simple Polygon, take the outer ring (first array of coordinates)
+      if (
+        Array.isArray(geoJsonData.geometry.coordinates) &&
+        geoJsonData.geometry.coordinates.length > 0 &&
+        Array.isArray(geoJsonData.geometry.coordinates[0])
+      ) {
+        // Extract all coordinates without simplification
+        // Convert from [lng, lat] format to [lat, lng] for Typesense search
+        const outerRing = geoJsonData.geometry.coordinates[0];
+        for (const coord of outerRing) {
+          if (Array.isArray(coord) && coord.length >= 2) {
+            // Ensure we're working with numbers
+            const lng = Number(coord[0]);
+            const lat = Number(coord[1]);
+            coordinates.push(lat, lng); // Push lat, lng for Typesense
+          }
+        }
+      }
+    } else if (geometryType === "MultiPolygon") {
+      // For MultiPolygon, take the first polygon's outer ring
+      if (
+        Array.isArray(geoJsonData.geometry.coordinates) &&
+        geoJsonData.geometry.coordinates.length > 0 &&
+        Array.isArray(geoJsonData.geometry.coordinates[0]) &&
+        geoJsonData.geometry.coordinates[0].length > 0 &&
+        Array.isArray(geoJsonData.geometry.coordinates[0][0])
+      ) {
+        // Extract all coordinates without simplification
+        const outerRing = geoJsonData.geometry.coordinates[0][0];
+        for (const coord of outerRing) {
+          if (Array.isArray(coord) && coord.length >= 2) {
+            // Ensure we're working with numbers
+            const lng = Number(coord[0]);
+            const lat = Number(coord[1]);
+            coordinates.push(lat, lng); // Push lat, lng for Typesense
+          }
+        }
+      }
+    } else {
+      console.error(
+        "Unsupported geometry type for polygon search:",
+        geometryType
+      );
+      return null;
+    }
+
+    // Check if we have enough coordinates to form a polygon
+    if (coordinates.length < 6) {
+      console.error("Not enough coordinates to form a polygon");
+      return null;
+    }
+
+    // Ensure polygon is closed (first point equals last point)
+    if (
+      coordinates[0] !== coordinates[coordinates.length - 2] ||
+      coordinates[1] !== coordinates[coordinates.length - 1]
+    ) {
+      coordinates.push(coordinates[0], coordinates[1]);
+    }
+
+    console.log(`Extracted ${coordinates.length / 2} points from polygon`);
+    return coordinates;
+  } catch (error) {
+    console.error("Error extracting polygon coordinates:", error);
+    return null;
+  }
+}
+
 // Component to update the map view when location changes
 function MapUpdater({ location }: { location: LocationDocument | null }) {
   const map = useMap();
@@ -124,7 +204,9 @@ function MapUpdater({ location }: { location: LocationDocument | null }) {
         ];
         map.setView(center, 14);
         return;
-      } else if (location.coordinates_json) {
+      }
+
+      if (location.coordinates_json) {
         try {
           // Parse point coordinates from JSON
           const parsed = JSON.parse(location.coordinates_json);
@@ -199,9 +281,165 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [pointRadius, setPointRadius] = useState<number | null>(null);
   const [pointName, setPointName] = useState<string>("");
 
+  // Add state for properties inside polygon
+  const [properties, setProperties] = useState<PropertyDocument[]>([]);
+  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
+  const [usingSampleData, setUsingSampleData] = useState(false);
+  const [polygonCoordinates, setPolygonCoordinates] = useState<number[] | null>(
+    null
+  );
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Use geometry directly from location when available, otherwise extract from GeoJSON
+  useEffect(() => {
+    if (!locationResult) {
+      setPolygonCoordinates(null);
+      return;
+    }
+
+    // For polygon locations, try to get coordinates directly from the location
+    if (
+      locationResult.coordinates_json &&
+      (locationResult.level < 4 || locationResult.geometry_type !== "Point")
+    ) {
+      try {
+        // Parse the coordinates_json field
+        const parsedCoordinates = JSON.parse(locationResult.coordinates_json);
+
+        // For MultiPolygon (most locations), extract all points
+        if (
+          locationResult.geometry_type === "MultiPolygon" &&
+          Array.isArray(parsedCoordinates) &&
+          parsedCoordinates.length > 0
+        ) {
+          // Extract all coordinates from the first polygon's outer ring
+          const flatCoordinates: number[] = [];
+          const polygonRing = parsedCoordinates[0][0]; // First polygon, outer ring
+
+          if (Array.isArray(polygonRing) && polygonRing.length > 0) {
+            // Convert from [lng, lat] to [lat, lng] format for Typesense
+            for (const point of polygonRing) {
+              if (Array.isArray(point) && point.length >= 2) {
+                flatCoordinates.push(Number(point[1]), Number(point[0])); // lat, lng
+              }
+            }
+
+            // Ensure polygon is closed
+            if (
+              flatCoordinates.length >= 4 &&
+              (flatCoordinates[0] !==
+                flatCoordinates[flatCoordinates.length - 2] ||
+                flatCoordinates[1] !==
+                  flatCoordinates[flatCoordinates.length - 1])
+            ) {
+              flatCoordinates.push(flatCoordinates[0], flatCoordinates[1]);
+            }
+
+            console.log(
+              `Using raw coordinates with ${flatCoordinates.length / 2} points`
+            );
+            setPolygonCoordinates(flatCoordinates);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Error parsing coordinates_json directly:", error);
+      }
+    }
+
+    // Fall back to extracting from GeoJSON if direct parsing failed
+    if (geoJsonData) {
+      const coordinates = extractPolygonCoordinates(geoJsonData);
+      console.log("Extracted coordinates from GeoJSON:", coordinates);
+      setPolygonCoordinates(coordinates);
+    } else {
+      setPolygonCoordinates(null);
+    }
+  }, [locationResult, geoJsonData]);
+
+  // Fetch properties inside polygon when coordinates change
+  useEffect(() => {
+    if (!polygonCoordinates || polygonCoordinates.length < 6) {
+      // Need at least 3 points (6 numbers) to form a polygon
+      setProperties([]);
+      return;
+    }
+
+    const fetchProperties = async () => {
+      const isMounted = true; // Flag to track component mount state
+      setIsLoadingProperties(true);
+      setUsingSampleData(false);
+
+      try {
+        const response = await fetch("/api/properties/search-in-polygon", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ coordinates: polygonCoordinates }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API responded with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Only update state if component is still mounted
+        if (isMounted) {
+          if (data.properties && Array.isArray(data.properties)) {
+            setProperties(data.properties);
+            setUsingSampleData(!!data.usingSampleData);
+          } else {
+            setProperties([]);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching properties inside polygon:", error);
+
+        // Use sample data if fetch fails, but only if component is still mounted
+        if (isMounted) {
+          // Fetch sample data from the API
+          try {
+            const sampleResponse = await fetch(
+              "/api/properties/search-in-polygon",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  coordinates: polygonCoordinates,
+                  useSampleData: true,
+                }),
+              }
+            );
+
+            if (sampleResponse.ok) {
+              const sampleData = await sampleResponse.json();
+              setProperties(sampleData.properties || []);
+            } else {
+              setProperties([]);
+            }
+            setUsingSampleData(true);
+          } catch (sampleError) {
+            console.error("Error fetching sample data:", sampleError);
+            setProperties([]);
+            setUsingSampleData(false);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingProperties(false);
+        }
+      }
+    };
+
+    fetchProperties();
+  }, [polygonCoordinates]);
 
   useEffect(() => {
     if (!locationResult) {
@@ -266,16 +504,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
     if (locationResult.coordinates_json) {
       try {
-        // Parse the coordinates_json field
+        // Parse the coordinates_json field exactly as it is
         const parsedCoordinates = JSON.parse(locationResult.coordinates_json);
+        console.log("Raw parsed coordinates from JSON:", parsedCoordinates);
 
-        // Create a valid GeoJSON geometry object
-        const validGeometry = createValidGeoJSON(
-          parsedCoordinates,
-          locationResult.geometry_type
-        );
-
-        // Create a proper GeoJSON feature
+        // Create a GeoJSON feature directly using the parsed coordinates
+        // without any transformation or simplification
         const geoJsonFeature: GeoJSONFeature = {
           type: "Feature",
           properties: {
@@ -293,10 +527,16 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               locationResult.type_1 ||
               "",
           },
-          geometry: validGeometry,
+          geometry: {
+            type: locationResult.geometry_type as GeoJSONGeometry["type"],
+            coordinates: parsedCoordinates,
+          },
         };
 
-        console.log("Created GeoJSON feature:", geoJsonFeature);
+        console.log(
+          "Created GeoJSON feature with raw coordinates:",
+          geoJsonFeature
+        );
         setGeoJsonData(geoJsonFeature);
       } catch (error) {
         console.error("Error parsing GeoJSON:", error);
@@ -329,60 +569,128 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   }
 
   return (
-    <MapContainer
-      center={[39.6, -8.0]} // Center of Portugal
-      zoom={6}
-      style={{ height: "100%", width: "100%" }}
-      zoomControl={true}
-      scrollWheelZoom={true}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+    <div className="relative h-full w-full">
+      <MapContainer
+        center={[39.6, -8.0]} // Center of Portugal
+        zoom={6}
+        style={{ height: "100%", width: "100%" }}
+        zoomControl={true}
+        scrollWheelZoom={true}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
 
-      {isPointLocation && pointCenter && pointRadius && (
-        <>
-          <Circle
-            center={pointCenter}
-            radius={pointRadius}
-            pathOptions={{
+        {isPointLocation && pointCenter && pointRadius && (
+          <>
+            <Circle
+              center={pointCenter}
+              radius={pointRadius}
+              pathOptions={{
+                color: "#d4277b",
+                weight: 2,
+                opacity: 0.8,
+                fillColor: "rgba(212, 39, 123, 0.2)",
+                fillOpacity: 0.35,
+              }}
+            />
+            <Marker position={pointCenter}>
+              <Popup>
+                <div>
+                  <h3 className="font-semibold">{pointName}</h3>
+                  <p className="text-sm text-gray-600">
+                    Radius: {pointRadius}m
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          </>
+        )}
+
+        {!isPointLocation && geoJsonData && (
+          <GeoJSON
+            key={JSON.stringify(geoJsonData)} // Force re-render when data changes
+            data={geoJsonData}
+            style={() => ({
               color: "#d4277b",
               weight: 2,
               opacity: 0.8,
               fillColor: "rgba(212, 39, 123, 0.2)",
               fillOpacity: 0.35,
-            }}
+            })}
+            onEachFeature={onEachFeature}
+            ref={geoJsonLayerRef as React.RefObject<L.GeoJSON>}
           />
-          <Marker position={pointCenter}>
-            <Popup>
-              <div>
-                <h3 className="font-semibold">{pointName}</h3>
-                <p className="text-sm text-gray-600">Radius: {pointRadius}m</p>
-              </div>
-            </Popup>
-          </Marker>
-        </>
-      )}
+        )}
 
-      {!isPointLocation && geoJsonData && (
-        <GeoJSON
-          key={JSON.stringify(geoJsonData)} // Force re-render when data changes
-          data={geoJsonData}
-          style={() => ({
-            color: "#d4277b",
-            weight: 2,
-            opacity: 0.8,
-            fillColor: "rgba(212, 39, 123, 0.2)",
-            fillOpacity: 0.35,
-          })}
-          onEachFeature={onEachFeature}
-          ref={geoJsonLayerRef as React.RefObject<L.GeoJSON>}
-        />
-      )}
+        {/* Property markers */}
+        {properties.map((property) => {
+          // Check for _geoloc field first (Typesense schema format)
+          if (
+            property._geoloc &&
+            Array.isArray(property._geoloc) &&
+            property._geoloc.length === 2
+          ) {
+            const [lat, lng] = property._geoloc;
 
-      <MapUpdater location={locationResult} />
-    </MapContainer>
+            if (typeof lat === "number" && typeof lng === "number") {
+              return (
+                <Marker key={property.id} position={[lat, lng]}>
+                  <Popup>
+                    <div className="property-popup">
+                      <h3 className="font-semibold">
+                        {property.title || "Property"}
+                      </h3>
+                      <p className="text-sm">{property.address}</p>
+                      {property.price && (
+                        <p className="text-sm font-medium mt-1">
+                          €{property.price.toLocaleString()}
+                        </p>
+                      )}
+                      <div className="flex gap-2 mt-1 text-xs text-gray-600">
+                        {property.bedrooms && (
+                          <span>{property.bedrooms} bed</span>
+                        )}
+                        {property.bathrooms && (
+                          <span>{property.bathrooms} bath</span>
+                        )}
+                        {property.area && <span>{property.area} m²</span>}
+                      </div>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            }
+          }
+
+          return null;
+        })}
+
+        <MapUpdater location={locationResult} />
+      </MapContainer>
+
+      {/* Status indicator */}
+      <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-2 z-[1000] text-sm">
+        {isLoadingProperties ? (
+          <p className="flex items-center">
+            <span className="inline-block w-3 h-3 mr-1 rounded-full bg-blue-500 animate-pulse" />
+            Loading properties...
+          </p>
+        ) : properties.length > 0 ? (
+          <p>
+            {properties.length} properties found
+            {usingSampleData && (
+              <span className="text-yellow-600 ml-1">(Sample data)</span>
+            )}
+          </p>
+        ) : polygonCoordinates ? (
+          <p>No properties found in this area</p>
+        ) : (
+          <p>Select an area to see properties</p>
+        )}
+      </div>
+    </div>
   );
 };
 

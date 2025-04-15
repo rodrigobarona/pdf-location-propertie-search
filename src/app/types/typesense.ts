@@ -42,7 +42,7 @@ export interface PropertyDocument {
   zone?: string;
   category_name?: string;
   cover_photo?: string;
-  _geoloc?: [number, number]; // [latitude, longitude]
+  _geoloc?: [number, number]; // [latitude, longitude] in array format as used in Typesense schema
 }
 
 export interface TypesenseSearchResults<T> {
