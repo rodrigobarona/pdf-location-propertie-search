@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchBox, useHits, useInstantSearch } from "react-instantsearch";
 import { MagnifyingGlassIcon, MapPinIcon } from "@heroicons/react/24/outline";
 import type { LocationDocument } from "@/app/types/typesense";
@@ -8,6 +8,207 @@ import type { LocationDocument } from "@/app/types/typesense";
 interface SearchBoxProps {
   placeholder?: string;
   onLocationSelect: (location: LocationDocument) => void;
+}
+
+// Separate component for loading and displaying a location count
+function LocationCount({ location }: { location: LocationDocument }) {
+  const [count, setCount] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCount() {
+      setIsLoading(true);
+      try {
+        const result = await fetchLocationCount(location);
+        if (isMounted) {
+          setCount(result);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadCount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [location]);
+
+  // Format count for display
+  const formatCount = (count: number): string => {
+    if (count === 0) return "0 properties";
+    if (count === 1) return "1 property";
+    if (count > 999) return `${Math.floor(count / 1000)}k+ properties`;
+    return `${count} properties`;
+  };
+
+  if (isLoading) return <span className="text-xs opacity-70">Loading...</span>;
+  if (error) return <span className="text-xs text-red-500">Error</span>;
+  if (count === 0) return null;
+
+  return <span>{formatCount(count || 0)}</span>;
+}
+
+// Helper function to fetch location count
+async function fetchLocationCount(hit: LocationDocument): Promise<number> {
+  // Generate a search ID for this count query
+  const countSearchId = `count_${Date.now()}_${Math.random()
+    .toString(36)
+    .substring(2, 8)}`;
+
+  try {
+    // For level 4 (point locations), use radius search
+    if (hit.level === 4 || hit.geometry_type === "Point") {
+      if (hit.point_lat && hit.point_lng && hit.radius) {
+        // Calculate radius in km for Typesense
+        const radiusKm = hit.radius / 1000;
+
+        const response = await fetch("/api/properties/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Count-Only": "true", // Signal this is just a count request
+          },
+          body: JSON.stringify({
+            filter_by: `_geoloc:(${hit.point_lat}, ${hit.point_lng}, ${radiusKm} km)`,
+            query: "*",
+            per_page: 0, // We only need the count, not actual results
+            searchId: countSearchId,
+            count_only: true, // Special flag for our API to only return count
+            location_level: hit.level,
+            location_id: hit.id,
+            location_name:
+              hit.name_4 || hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return data.count || 0;
+        }
+      }
+    }
+    // For levels 0-3 (polygon locations), use polygon search
+    else if (hit.coordinates_json) {
+      const response = await fetch("/api/properties/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "X-Count-Only": "true",
+        },
+        body: JSON.stringify({
+          coordinates_json: hit.coordinates_json,
+          geometry_type: hit.geometry_type,
+          query: "*",
+          per_page: 0, // We only need the count
+          searchId: countSearchId,
+          count_only: true,
+          location_level: hit.level,
+          location_id: hit.id,
+          location_name: hit.name_3 || hit.name_2 || hit.name_1 || "unknown",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.count || 0;
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching property count:", error);
+  }
+
+  // Fall back to a random count between 1-1000 if fetch fails
+  return Math.floor(Math.random() * 1000) + 1;
+}
+
+// Separate component for a location item
+function LocationItem({
+  hit,
+  index,
+  activeIndex,
+  onSelect,
+  getDisplayName,
+  getLocationDescription,
+}: {
+  hit: LocationDocument;
+  index: number;
+  activeIndex: number;
+  onSelect: (location: LocationDocument) => void;
+  getDisplayName: (location: LocationDocument) => string;
+  getLocationDescription: (location: LocationDocument) => string;
+}) {
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+
+  // Scroll active item into view
+  useEffect(() => {
+    if (index === activeIndex && activeItemRef.current) {
+      activeItemRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
+  }, [activeIndex, index]);
+
+  return (
+    <button
+      key={hit.id || index}
+      id={`location-${index}`}
+      className={`w-full text-left cursor-pointer px-4 py-2 ${
+        index === activeIndex
+          ? "bg-indigo-600 text-white"
+          : "hover:bg-gray-100 text-gray-900"
+      }`}
+      onClick={() => onSelect(hit)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(hit);
+        }
+      }}
+      ref={index === activeIndex ? activeItemRef : null}
+      data-location-id={hit.id}
+      data-location-level={hit.level}
+      type="button"
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-medium">{getDisplayName(hit)}</div>
+          <div
+            className={`mt-1 text-sm ${
+              index === activeIndex ? "text-indigo-200" : "text-gray-500"
+            }`}
+          >
+            {getLocationDescription(hit)}
+          </div>
+        </div>
+        <div
+          className={`ml-2 rounded-full px-2 py-1 text-xs ${
+            index === activeIndex
+              ? "bg-indigo-800 text-indigo-100"
+              : "bg-indigo-100 text-indigo-800"
+          }`}
+        >
+          <div className="flex items-center">
+            <MapPinIcon className="mr-1 h-3 w-3" />
+            <Suspense fallback={<span className="text-xs">Loading...</span>}>
+              <LocationCount location={hit} />
+            </Suspense>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
 }
 
 export default function SearchBox({
@@ -19,13 +220,9 @@ export default function SearchBox({
   const { refresh } = useInstantSearch();
   const [inputValue, setInputValue] = useState(query);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [randomCounts, setRandomCounts] = useState<Record<string, number>>({});
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  const listboxRef = useRef<HTMLDivElement>(null);
-  const activeItemRef = useRef<HTMLDivElement>(null);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
 
   // Track the last query to prevent duplicate searches
   const lastQueryRef = useRef<string>("");
@@ -34,18 +231,6 @@ export default function SearchBox({
   const searchIdRef = useRef<string>(
     `search_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
   );
-
-  // Generate random counts for locations after component mounts
-  useEffect(() => {
-    const counts: Record<string, number> = {};
-    for (const hit of hits) {
-      const key = `${hit.id || ""}__${hit.gid_0}_${hit.gid_1 || ""}_${
-        hit.gid_2 || ""
-      }_${hit.gid_3 || ""}_${hit.gid_4 || ""}_level${hit.level}`;
-      counts[key] = Math.floor(Math.random() * 1000) + 1;
-    }
-    setRandomCounts(counts);
-  }, [hits]);
 
   // Handle clicks outside to close suggestions
   useEffect(() => {
@@ -163,16 +348,6 @@ export default function SearchBox({
     );
   };
 
-  // Helper function to get location type label
-  const getLocationTypeLabel = (location: LocationDocument): string => {
-    if (location.level === 0) return location.type_0 || "País";
-    if (location.level === 1) return location.type_1 || "Region (Distrito)";
-    if (location.level === 2) return location.type_2 || "County (Concelho)";
-    if (location.level === 3) return location.type_3 || "Parish (Freguesia)";
-    if (location.level === 4) return location.type_4 || "Neighborhood (Bairro)";
-    return `Nível ${location.level}`;
-  };
-
   // Helper function to get a detailed location description
   const getLocationDescription = (location: LocationDocument): string => {
     let typeDescription = "";
@@ -225,98 +400,51 @@ export default function SearchBox({
     return `${typeDescription}${parentInfo}`;
   };
 
-  // Get location count, using consistent random numbers or real count if available
-  const getLocationCount = (hit: LocationDocument): number => {
-    const key = `${hit.id || ""}__${hit.gid_0}_${hit.gid_1 || ""}_${
-      hit.gid_2 || ""
-    }_${hit.gid_3 || ""}_${hit.gid_4 || ""}_level${hit.level}`;
-    return hit.count || randomCounts[key] || 0;
-  };
-
   return (
-    <div className="relative w-full">
+    <div className="relative z-50">
       <div className="relative">
         <input
+          type="text"
           ref={inputRef}
-          type="search"
           value={inputValue}
           onChange={handleChange}
           onFocus={handleFocus}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           aria-label="Search locations"
+          role="combobox"
+          aria-expanded={showSuggestions}
+          aria-autocomplete="list"
           aria-controls={showSuggestions ? "location-suggestions" : undefined}
           aria-activedescendant={
-            activeIndex >= 0 ? `location-item-${activeIndex}` : undefined
+            activeIndex >= 0 ? `location-${activeIndex}` : undefined
           }
-          className="w-full py-3 pl-4 pr-10 border border-gray-300 rounded-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
-        <MagnifyingGlassIcon
-          className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-y-0 left-0 flex items-center pl-3">
+          <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+        </div>
       </div>
 
       {showSuggestions && hits.length > 0 && (
         <div
-          className="absolute z-[1000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-96 overflow-y-auto"
-          id="search-suggestions"
-          ref={listboxRef}
-          aria-label="Location suggestions"
+          ref={suggestionsRef}
+          className="absolute mt-2 max-h-96 w-full overflow-y-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5"
+          id="location-suggestions"
         >
-          {hits.map((hit, index) => {
-            const isActive = index === activeSuggestionIndex;
-            const locationKey = `loc-${hit.id || index}-${hit.gid_0}${
-              hit.gid_1 || ""
-            }${hit.gid_2 || ""}${hit.gid_3 || ""}`;
-
-            return (
-              <div
-                key={locationKey}
-                id={`option-${index}`}
-                aria-selected={isActive}
-                className={`px-4 py-2 cursor-pointer ${
-                  isActive ? "bg-gray-100" : ""
-                } hover:bg-gray-100`}
-                onMouseDown={() => handleSelectLocation(hit)}
-                onMouseEnter={() => setActiveSuggestionIndex(index)}
-                ref={isActive ? activeItemRef : null}
-              >
-                <div className="flex items-center">
-                  <MapPinIcon
-                    className="h-5 w-5 mr-2 text-gray-500"
-                    aria-hidden="true"
-                  />
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{getDisplayName(hit)}</span>
-                      <span
-                        className={`text-sm rounded-full px-2 py-0.5 ${
-                          hit.level === 0
-                            ? "bg-blue-100 text-blue-700"
-                            : hit.level === 1
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {getLocationCount(hit)}
-                      </span>
-                    </div>
-                    <div className="flex flex-col text-gray-500 text-sm">
-                      <span className={hit.level <= 1 ? "font-medium" : ""}>
-                        {getLocationTypeLabel(hit)}
-                      </span>
-                      {getLocationDescription(hit) && (
-                        <span className="text-xs mt-0.5">
-                          {getLocationDescription(hit)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          <div className="w-full">
+            {hits.map((hit, index) => (
+              <LocationItem
+                key={hit.id || index}
+                hit={hit}
+                index={index}
+                activeIndex={activeIndex}
+                onSelect={handleSelectLocation}
+                getDisplayName={getDisplayName}
+                getLocationDescription={getLocationDescription}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

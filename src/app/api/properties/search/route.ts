@@ -165,6 +165,7 @@ export async function POST(request: Request) {
       location_level?: number;
       location_id?: string;
       location_name?: string;
+      count_only?: boolean; // Added flag for count-only queries
     } = await request.json();
 
     const {
@@ -182,12 +183,15 @@ export async function POST(request: Request) {
       location_level,
       location_id,
       location_name,
+      count_only = false, // Default to false
     } = body;
 
     // Log the search ID and location info to help with debugging
     if (searchId) {
       console.log(
-        `Processing search request with ID: ${searchId}${
+        `Processing ${
+          count_only ? "count-only " : ""
+        }search request with ID: ${searchId}${
           timestamp ? ` (timestamp: ${timestamp})` : ""
         }`
       );
@@ -220,7 +224,7 @@ export async function POST(request: Request) {
       console.log("Using sample data as requested");
       return NextResponse.json(
         {
-          properties: sampleProperties,
+          properties: count_only ? [] : sampleProperties,
           count: sampleProperties.length,
           usingSampleData: true,
           searchId,
@@ -237,7 +241,8 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: "Error connecting to Typesense",
-          properties: sampleProperties,
+          properties: count_only ? [] : sampleProperties,
+          count: sampleProperties.length,
           usingSampleData: true,
         },
         { status: 500, headers: responseHeaders }
@@ -256,15 +261,54 @@ export async function POST(request: Request) {
       // Typesense v28 parameters for performance and cache control
       prioritize_exact_match: true,
       exhaustive_search: true,
-      search_cutoff_ms: 3000, // 3 seconds max search time
-      use_cache: false, // Disable server-side caching for search results
-      max_candidates: 10000, // Increase max candidates for complex geo queries
+      search_cutoff_ms: count_only ? 1000 : 3000, // Lower timeout for count-only
+      use_cache: true, // Enable caching for count-only queries to improve performance
+      max_candidates: count_only ? 1000 : 10000, // Lower for count-only queries
     };
 
     // If filter_by parameter is provided, use it directly for point-radius search
-    if (filter_by && filter_by.includes("_geoloc")) {
+    if (
+      filter_by &&
+      typeof filter_by === "string" &&
+      filter_by.includes("_geoloc")
+    ) {
       try {
         console.log(`Performing geo search with filter: ${filter_by}`);
+
+        // For count-only queries, we can use a more efficient approach
+        if (count_only) {
+          // For count-only, we don't need to retrieve documents, just get the count
+          const searchResults = (await typesenseClient
+            .collections(COLLECTION_PROPERTIES)
+            .documents()
+            .search({
+              q: query,
+              query_by: "title,address",
+              filter_by: filter_by,
+              page: 1,
+              per_page: 0, // No need for actual results
+              ...commonSearchParams,
+            })) as SearchResponse;
+
+          console.log(
+            `Count-only: Found ${
+              searchResults.found || 0
+            } properties using filter_by`
+          );
+
+          return NextResponse.json(
+            {
+              count: searchResults.found || 0,
+              searchId,
+              location_info: {
+                level: location_level,
+                id: location_id,
+                name: location_name,
+              },
+            },
+            { headers: responseHeaders }
+          );
+        }
 
         // Extract lat/lng from filter for sorting
         let sort_by = undefined;
@@ -341,9 +385,9 @@ export async function POST(request: Request) {
         const searchParameters = {
           q: query || "*",
           query_by: "title,address,description",
-          per_page: 20, // Lower for normal text search to avoid overwhelming the UI
+          per_page: count_only ? 0 : 20, // 0 for count-only
           sort_by: "_text_match:desc", // Sort by text relevance
-          highlight_full_fields: "title,address,description", // Highlight matched terms
+          highlight_full_fields: count_only ? "" : "title,address,description", // Skip highlighting for count-only
           ...commonSearchParams,
         };
 
@@ -355,12 +399,23 @@ export async function POST(request: Request) {
           .search(searchParameters)) as SearchResponse;
 
         console.log(
-          `Found ${searchResults.hits?.length || 0} properties matching query`
+          `Found ${searchResults.found || 0} properties matching query`
         );
+
+        // Return only the count for count_only requests
+        if (count_only) {
+          return NextResponse.json(
+            {
+              count: searchResults.found || 0,
+              searchId,
+            },
+            { headers: responseHeaders }
+          );
+        }
 
         const responseData = {
           properties: searchResults.hits?.map((hit) => hit.document) || [],
-          count: searchResults.hits?.length || 0,
+          count: searchResults.found || 0,
           searchType: "text",
           searchId,
         };
@@ -372,7 +427,8 @@ export async function POST(request: Request) {
           {
             error: "Error searching for properties",
             details: error instanceof Error ? error.message : String(error),
-            properties: sampleProperties.slice(0, 10), // Just return a few samples for text search
+            properties: count_only ? [] : sampleProperties.slice(0, 10),
+            count: count_only ? sampleProperties.length : 10,
             usingSampleData: true,
             searchId,
           },
@@ -402,8 +458,45 @@ export async function POST(request: Request) {
           const radiusFilterString = `_geoloc:(${lat}, ${lng}, ${radiusKm} km)`;
 
           console.log(
-            `Performing radius search at [${lat}, ${lng}] with radius ${radiusKm} km`
+            `Performing ${
+              count_only ? "count-only " : ""
+            }radius search at [${lat}, ${lng}] with radius ${radiusKm} km`
           );
+
+          // For count-only queries, use a simpler approach
+          if (count_only) {
+            const searchParameters = {
+              q: query,
+              query_by: "title,address",
+              filter_by: radiusFilterString,
+              per_page: 0, // Don't need documents
+              ...commonSearchParams,
+            };
+
+            const searchResults = (await typesenseClient
+              .collections(COLLECTION_PROPERTIES)
+              .documents()
+              .search(searchParameters)) as SearchResponse;
+
+            console.log(
+              `Count-only: Found ${
+                searchResults.found || 0
+              } properties within radius`
+            );
+
+            return NextResponse.json(
+              {
+                count: searchResults.found || 0,
+                searchId,
+                location_info: {
+                  level: location_level,
+                  id: location_id,
+                  name: location_name,
+                },
+              },
+              { headers: responseHeaders }
+            );
+          }
 
           // Perform a radius search with pagination
           const searchParameters = {
@@ -660,7 +753,7 @@ export async function POST(request: Request) {
       console.log("Returning sample data for oversized polygon query");
       return NextResponse.json(
         {
-          properties: sampleProperties.slice(0, 20), // Return limited sample data
+          properties: count_only ? [] : sampleProperties.slice(0, 20),
           count: sampleProperties.length,
           searchType: "polygon",
           points: searchCoordinates.length / 2,
@@ -674,7 +767,61 @@ export async function POST(request: Request) {
       );
     }
 
-    // Perform a direct polygon search with pagination
+    // For count-only queries, optimize the search parameters
+    if (count_only) {
+      console.log(
+        `Performing count-only polygon search with ${
+          searchCoordinates.length / 2
+        } points`
+      );
+
+      const searchParameters = {
+        q: query,
+        query_by: "title,address", // Simplified fields list
+        filter_by: polygonFilterString,
+        per_page: 0, // No documents needed
+        ...commonSearchParams,
+      };
+
+      try {
+        const searchResults = (await typesenseClient
+          .collections(COLLECTION_PROPERTIES)
+          .documents()
+          .search(searchParameters)) as SearchResponse;
+
+        console.log(
+          `Count-only: Found ${
+            searchResults.found || 0
+          } properties inside the polygon`
+        );
+
+        return NextResponse.json(
+          {
+            count: searchResults.found || 0,
+            searchId,
+            location_info: {
+              level: location_level,
+              id: location_id,
+              name: location_name,
+            },
+          },
+          { headers: responseHeaders }
+        );
+      } catch (error) {
+        console.error("Error counting properties in polygon:", error);
+        return NextResponse.json(
+          {
+            error: "Error counting properties in polygon",
+            details: error instanceof Error ? error.message : String(error),
+            count: 0,
+            searchId,
+          },
+          { status: 500, headers: responseHeaders }
+        );
+      }
+    }
+
+    // Perform a direct polygon search with pagination for normal requests
     const searchParameters = {
       q: query,
       query_by: "title,address,description",
@@ -731,7 +878,8 @@ export async function POST(request: Request) {
         {
           error: "Error searching for properties in polygon",
           details: error instanceof Error ? error.message : String(error),
-          properties: sampleProperties,
+          properties: count_only ? [] : sampleProperties,
+          count: sampleProperties.length,
           usingSampleData: true,
           searchId,
         },

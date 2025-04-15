@@ -729,11 +729,14 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       }
     }, 100);
 
+    // Capture the current abort controllers for cleanup
+    const currentAbortControllers = abortControllersRef.current;
+
     // Cleanup function
     return () => {
       clearTimeout(preventSearchTimer);
       // Abort any pending requests when unmounting or changing location again
-      for (const controller of abortControllersRef.current.values()) {
+      for (const controller of currentAbortControllers.values()) {
         try {
           controller.abort();
         } catch {
@@ -1312,7 +1315,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [searchId, handleFetchError, locationResult]
+    [searchId, handleFetchError, locationResult, isAutoLoading]
   );
 
   // Use geometry directly from location when available
