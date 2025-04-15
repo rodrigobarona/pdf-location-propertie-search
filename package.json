@@ -19,6 +19,7 @@
     "react-instantsearch": "^7.15.5",
     "react-leaflet": "^5.0.0",
     "react-tabs": "^6.1.0",
+    "typesense": "^2.0.3",
     "typesense-instantsearch-adapter": "^2.9.0"
   },
   "devDependencies": {
