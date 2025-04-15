@@ -50,28 +50,15 @@ export async function POST(request: Request) {
       console.log(`Processing search request with ID: ${searchId}`);
     }
 
-    // Create response headers with caching directives
-    const responseHeaders = new Headers({
-      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    });
-
     // Return sample data if explicitly requested
     if (useSampleData) {
       console.log("Using sample data as requested");
-      return new NextResponse(
-        JSON.stringify({
-          properties: sampleProperties,
-          count: sampleProperties.length,
-          usingSampleData: true,
-          searchId,
-        }),
-        { 
-          status: 200,
-          headers: responseHeaders 
-        }
-      );
+      return NextResponse.json({
+        properties: sampleProperties,
+        count: sampleProperties.length,
+        usingSampleData: true,
+        searchId,
+      });
     }
 
     // First try to list collections to verify connectivity
@@ -79,16 +66,13 @@ export async function POST(request: Request) {
       await typesenseClient.collections().retrieve();
     } catch (error) {
       console.error("Error connecting to Typesense:", error);
-      return new NextResponse(
-        JSON.stringify({
+      return NextResponse.json(
+        {
           error: "Error connecting to Typesense",
           properties: sampleProperties,
           usingSampleData: true,
-        }),
-        { 
-          status: 500,
-          headers: responseHeaders 
-        }
+        },
+        { status: 500 }
       );
     }
 
@@ -114,32 +98,23 @@ export async function POST(request: Request) {
           `Found ${searchResults.hits?.length || 0} properties matching query`
         );
 
-        return new NextResponse(
-          JSON.stringify({
-            properties: searchResults.hits?.map((hit) => hit.document) || [],
-            count: searchResults.hits?.length || 0,
-            searchType: "text",
-            searchId,
-          }),
-          { 
-            status: 200,
-            headers: responseHeaders 
-          }
-        );
+        return NextResponse.json({
+          properties: searchResults.hits?.map((hit) => hit.document) || [],
+          count: searchResults.hits?.length || 0,
+          searchType: "text",
+          searchId,
+        });
       } catch (error) {
         console.error("Error performing text search:", error);
-        return new NextResponse(
-          JSON.stringify({
+        return NextResponse.json(
+          {
             error: "Error searching for properties",
             details: error instanceof Error ? error.message : String(error),
             properties: sampleProperties.slice(0, 10), // Just return a few samples for text search
             usingSampleData: true,
             searchId,
-          }),
-          { 
-            status: 500,
-            headers: responseHeaders 
-          }
+          },
+          { status: 500 }
         );
       }
     }
@@ -191,33 +166,24 @@ export async function POST(request: Request) {
             } properties`
           );
 
-          return new NextResponse(
-            JSON.stringify({
-              properties: searchResults.hits?.map((hit) => hit.document) || [],
-              count: searchResults.found || 0,
-              searchType: "radius",
-              page: page,
-              per_page: per_page,
-              searchId,
-            }),
-            { 
-              status: 200,
-              headers: responseHeaders 
-            }
-          );
+          return NextResponse.json({
+            properties: searchResults.hits?.map((hit) => hit.document) || [],
+            count: searchResults.found || 0,
+            searchType: "radius",
+            page: page,
+            per_page: per_page,
+            searchId,
+          });
         }
       } catch (error) {
         console.error("Error parsing point coordinates:", error);
-        return new NextResponse(
-          JSON.stringify({
+        return NextResponse.json(
+          {
             error: "Failed to parse point coordinates",
             details: error instanceof Error ? error.message : String(error),
             searchId,
-          }),
-          { 
-            status: 400,
-            headers: responseHeaders 
-          }
+          },
+          { status: 400 }
         );
       }
     }
@@ -337,15 +303,12 @@ export async function POST(request: Request) {
         );
       } catch (error) {
         console.error("Error parsing coordinates_json:", error);
-        return new NextResponse(
-          JSON.stringify({
+        return NextResponse.json(
+          {
             error: "Failed to parse coordinates_json",
             details: error instanceof Error ? error.message : String(error),
-          }),
-          { 
-            status: 400,
-            headers: responseHeaders 
-          }
+          },
+          { status: 400 }
         );
       }
     }
@@ -363,18 +326,15 @@ export async function POST(request: Request) {
 
     // Check if we have valid coordinates for search
     if (searchCoordinates.length < 6) {
-      return new NextResponse(
-        JSON.stringify({
+      return NextResponse.json(
+        {
           error:
             "Invalid coordinates. Provide an array of at least 6 numbers (3 points)",
           details:
             "Format should be [lat1, lng1, lat2, lng2, ...] or a valid coordinates_json field",
           searchId,
-        }),
-        { 
-          status: 400,
-          headers: responseHeaders 
-        }
+        },
+        { status: 400 }
       );
     }
 
@@ -400,21 +360,15 @@ export async function POST(request: Request) {
 
       // Return sample data instead of error for better user experience
       console.log("Returning sample data for oversized polygon query");
-      return new NextResponse(
-        JSON.stringify({
-          properties: sampleProperties.slice(0, 20), // Return limited sample data
-          count: sampleProperties.length,
-          searchType: "polygon",
-          points: searchCoordinates.length / 2,
-          filterLength: polygonFilterString.length,
-          usingSampleData: true,
-          searchId,
-        }),
-        { 
-          status: 200,
-          headers: responseHeaders 
-        }
-      );
+      return NextResponse.json({
+        properties: sampleProperties.slice(0, 20), // Return limited sample data
+        count: sampleProperties.length,
+        searchType: "polygon",
+        points: searchCoordinates.length / 2,
+        filterLength: polygonFilterString.length,
+        usingSampleData: true,
+        searchId,
+      });
     }
 
     // Perform a direct polygon search with pagination
@@ -449,54 +403,38 @@ export async function POST(request: Request) {
         } properties`
       );
 
-      return new NextResponse(
-        JSON.stringify({
-          properties: searchResults.hits?.map((hit) => hit.document) || [],
-          count: searchResults.found || 0,
-          searchType: "polygon",
-          points: searchCoordinates.length / 2,
-          page: page,
-          per_page: per_page,
-          searchId,
-        }),
-        { 
-          status: 200,
-          headers: responseHeaders 
-        }
-      );
+      return NextResponse.json({
+        properties: searchResults.hits?.map((hit) => hit.document) || [],
+        count: searchResults.found || 0,
+        searchType: "polygon",
+        points: searchCoordinates.length / 2,
+        page: page,
+        per_page: per_page,
+        searchId,
+      });
     } catch (error) {
       console.error("Error searching properties in polygon:", error);
 
       // For development, return some sample data when there's an error
-      return new NextResponse(
-        JSON.stringify({
+      return NextResponse.json(
+        {
           error: "Error searching for properties in polygon",
           details: error instanceof Error ? error.message : String(error),
           properties: sampleProperties,
           usingSampleData: true,
           searchId,
-        }),
-        { 
-          status: 500,
-          headers: responseHeaders 
-        }
+        },
+        { status: 500 }
       );
     }
   } catch (error) {
     console.error("Error processing request:", error);
-    return new NextResponse(
-      JSON.stringify({
+    return NextResponse.json(
+      {
         error: "Error processing request",
         details: error instanceof Error ? error.message : String(error),
-      }),
-      { 
-        status: 400,
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-          'Pragma': 'no-cache',
-          'Expires': '0',
-        }
-      }
+      },
+      { status: 400 }
     );
   }
 }

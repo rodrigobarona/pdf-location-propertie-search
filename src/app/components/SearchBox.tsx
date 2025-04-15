@@ -148,35 +148,31 @@ export default function SearchBox({
     if (location.level === 0) {
       typeDescription = "Country";
       return typeDescription;
-    }
-
+    } 
+    
     if (location.level === 1) {
       typeDescription = location.type_1 || "District";
       return `${typeDescription} in ${location.country}`;
-    }
-
+    } 
+    
     if (location.level === 2) {
       typeDescription = location.type_2 || "Municipality";
       if (location.name_1) {
         return `${typeDescription} in ${location.name_1}`;
       }
-    }
-
+    } 
+    
     if (location.level === 3) {
       typeDescription = location.type_3 || "Parish";
       if (location.name_2) {
-        return `${typeDescription} in ${location.name_2}${
-          location.name_1 ? `, ${location.name_1}` : ""
-        }`;
+        return `${typeDescription} in ${location.name_2}${location.name_1 ? `, ${location.name_1}` : ''}`;
       }
-    }
-
+    } 
+    
     if (location.level === 4) {
       typeDescription = location.type_4 || "Neighborhood";
       if (location.name_3) {
-        return `${typeDescription} in ${location.name_3}${
-          location.name_2 ? `, ${location.name_2}` : ""
-        }`;
+        return `${typeDescription} in ${location.name_3}${location.name_2 ? `, ${location.name_2}` : ''}`;
       }
     }
 
