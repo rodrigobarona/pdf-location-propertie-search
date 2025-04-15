@@ -29,6 +29,135 @@ interface CacheData {
   usingSampleData?: boolean;
 }
 
+// After the SearchResponse interface, add the polygon simplification functions:
+
+// Define a point structure for simplification algorithms
+interface Point {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Calculate perpendicular distance from a point to a line segment
+ */
+function perpendicularDistance(
+  point: Point,
+  lineStart: Point,
+  lineEnd: Point
+): number {
+  if (lineStart.lat === lineEnd.lat && lineStart.lng === lineEnd.lng) {
+    // Line is actually a point, return distance to the point
+    return Math.sqrt(
+      (point.lat - lineStart.lat) ** 2 + (point.lng - lineStart.lng) ** 2
+    );
+  }
+
+  // Calculate area of the triangle formed by the point and the line segment
+  const area = Math.abs(
+    (lineStart.lat * (lineEnd.lng - point.lng) +
+      lineEnd.lat * (point.lng - lineStart.lng) +
+      point.lat * (lineStart.lng - lineEnd.lng)) /
+      2
+  );
+
+  // Calculate the length of the line segment
+  const length = Math.sqrt(
+    (lineEnd.lat - lineStart.lat) ** 2 + (lineEnd.lng - lineStart.lng) ** 2
+  );
+
+  // Distance = 2 * Area / Length
+  return (2 * area) / length;
+}
+
+/**
+ * Simplify a polygon using the Douglas-Peucker algorithm
+ * @param coordinates Flat array of [lat1, lng1, lat2, lng2, ...]
+ * @param tolerance Simplification tolerance (higher = more simplification)
+ * @returns Simplified flat array of coordinates
+ */
+function simplifyPolygon(coordinates: number[], tolerance = 0.0003): number[] {
+  if (coordinates.length < 6) {
+    return coordinates; // Can't simplify a polygon with fewer than 3 points
+  }
+
+  // Convert flat array to array of points for easier processing
+  const points: Point[] = [];
+  for (let i = 0; i < coordinates.length; i += 2) {
+    points.push({ lat: coordinates[i], lng: coordinates[i + 1] });
+  }
+
+  // Check if it's a closed polygon (first point equals last point)
+  const isClosed =
+    points[0].lat === points[points.length - 1].lat &&
+    points[0].lng === points[points.length - 1].lng;
+
+  // Remove the last point if it's a closed polygon
+  // (we'll add it back at the end)
+  const processPoints = isClosed ? points.slice(0, -1) : [...points];
+
+  // Apply Douglas-Peucker algorithm
+  const simplified = douglasPeucker(processPoints, tolerance);
+
+  // Make sure we have at least 3 points for a valid polygon
+  if (simplified.length < 3) {
+    console.warn(
+      "Simplification resulted in fewer than 3 points, using original"
+    );
+    return coordinates;
+  }
+
+  // If it was a closed polygon, add the first point at the end to close it again
+  if (isClosed) {
+    simplified.push({ ...simplified[0] });
+  }
+
+  // Convert back to flat array
+  const result: number[] = [];
+  for (const point of simplified) {
+    result.push(point.lat, point.lng);
+  }
+
+  return result;
+}
+
+/**
+ * Douglas-Peucker algorithm implementation
+ */
+function douglasPeucker(points: Point[], tolerance: number): Point[] {
+  if (points.length <= 2) {
+    return [...points];
+  }
+
+  // Find the point with the maximum distance from the line segment between first and last points
+  let maxDistance = 0;
+  let maxIndex = 0;
+
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const distance = perpendicularDistance(points[i], firstPoint, lastPoint);
+
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      maxIndex = i;
+    }
+  }
+
+  // If the maximum distance is greater than our tolerance, recursively simplify
+  if (maxDistance > tolerance) {
+    // Recursive simplification of the two segments
+    const firstHalf = douglasPeucker(points.slice(0, maxIndex + 1), tolerance);
+    const secondHalf = douglasPeucker(points.slice(maxIndex), tolerance);
+
+    // Concatenate the simplified segments (removing duplicate point)
+    return [...firstHalf.slice(0, -1), ...secondHalf];
+  }
+
+  // If no point is above tolerance, return only the endpoints
+  return [firstPoint, lastPoint];
+}
+
 export async function POST(request: Request) {
   try {
     // Parse request body
@@ -385,14 +514,42 @@ export async function POST(request: Request) {
       searchCoordinates.push(searchCoordinates[0], searchCoordinates[1]);
     }
 
-    // Create the filter string for polygon search
-    // Typesense requires the format: _geoloc:(lat1, lng1, lat2, lng2, ...)
-    const polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
+    // Add variable for storing simplification stats
+    const originalPointCount = searchCoordinates.length / 2;
 
-    // Check if the filter string is too long for Typesense (limit is 4000 characters)
+    // Check if the coordinates are too long and need simplification
+    let tolerance = 0.0001; // Start with a very small tolerance
+    let polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
+
+    // Simplify the polygon if it's too large, gradually increasing tolerance
+    while (polygonFilterString.length > 3900 && tolerance <= 0.01) {
+      console.log(
+        `Polygon filter string too long: ${polygonFilterString.length} chars. Applying simplification with tolerance ${tolerance}`
+      );
+
+      // Simplify the polygon
+      searchCoordinates = simplifyPolygon(searchCoordinates, tolerance);
+
+      // Rebuild the filter string
+      polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
+
+      // Increase tolerance for next iteration if needed
+      tolerance *= 2;
+    }
+
+    // Log simplification results
+    if (originalPointCount !== searchCoordinates.length / 2) {
+      console.log(
+        `Simplified polygon from ${originalPointCount} to ${
+          searchCoordinates.length / 2
+        } points. Filter string length: ${polygonFilterString.length}`
+      );
+    }
+
+    // Check if the filter string is still too long after max simplification
     if (polygonFilterString.length > 3900) {
       console.warn(
-        `Polygon filter string too long: ${polygonFilterString.length} chars (Typesense limit is 4000)`
+        `Polygon filter string still too long after simplification: ${polygonFilterString.length} chars (Typesense limit is 4000)`
       );
 
       // Return sample data instead of error for better user experience
@@ -406,6 +563,8 @@ export async function POST(request: Request) {
           filterLength: polygonFilterString.length,
           usingSampleData: true,
           searchId,
+          simplificationApplied: true,
+          originalPointCount,
         },
         { headers: responseHeaders }
       );

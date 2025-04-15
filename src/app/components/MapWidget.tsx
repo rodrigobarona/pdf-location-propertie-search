@@ -207,6 +207,230 @@ function extractPolygonCoordinates(
   }
 }
 
+/**
+ * Calculate perpendicular distance from point to line segment
+ */
+function perpendicularDistance(
+  point: { lat: number; lng: number },
+  lineStart: { lat: number; lng: number },
+  lineEnd: { lat: number; lng: number }
+): number {
+  // If the line segment is actually a point
+  if (lineStart.lat === lineEnd.lat && lineStart.lng === lineEnd.lng) {
+    return Math.sqrt(
+      (point.lat - lineStart.lat) ** 2 + (point.lng - lineStart.lng) ** 2
+    );
+  }
+
+  // Calculate the area of triangle formed by the point and line segment
+  const area = Math.abs(
+    (lineStart.lat * (lineEnd.lng - point.lng) +
+      lineEnd.lat * (point.lng - lineStart.lng) +
+      point.lat * (lineStart.lng - lineEnd.lng)) /
+      2
+  );
+
+  // Calculate line segment length
+  const length = Math.sqrt(
+    (lineEnd.lat - lineStart.lat) ** 2 + (lineEnd.lng - lineStart.lng) ** 2
+  );
+
+  // Calculate perpendicular distance (2 * area / length)
+  const distance = (2 * area) / length;
+
+  // Log significant distances to help identify key points in complex polygons
+  if (distance > 0.01) {
+    console.log(
+      `Significant distance (${distance.toFixed(
+        4
+      )}) at point [${point.lat.toFixed(6)}, ${point.lng.toFixed(
+        6
+      )}] to line [${lineStart.lat.toFixed(6)}, ${lineStart.lng.toFixed(
+        6
+      )}] → [${lineEnd.lat.toFixed(6)}, ${lineEnd.lng.toFixed(6)}]`
+    );
+  }
+
+  return distance;
+}
+
+/**
+ * Douglas-Peucker algorithm for line simplification
+ */
+function douglasPeuckerSimplify(
+  points: Array<{ lat: number; lng: number }>,
+  tolerance: number
+): Array<{ lat: number; lng: number }> {
+  if (points.length <= 2) {
+    return [...points];
+  }
+
+  // Find point with maximum distance
+  let maxDistance = 0;
+  let maxIndex = 0;
+
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const distance = perpendicularDistance(points[i], firstPoint, lastPoint);
+
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      maxIndex = i;
+    }
+  }
+
+  // If max distance is greater than tolerance, recursively simplify
+  if (maxDistance > tolerance) {
+    // Recursive simplification of the two parts
+    const firstPart = douglasPeuckerSimplify(
+      points.slice(0, maxIndex + 1),
+      tolerance
+    );
+    const secondPart = douglasPeuckerSimplify(
+      points.slice(maxIndex),
+      tolerance
+    );
+
+    // Concatenate the two parts (remove duplicate point)
+    return [...firstPart.slice(0, -1), ...secondPart];
+  } else {
+    // Below tolerance, return just the endpoints
+    return [firstPoint, lastPoint];
+  }
+}
+
+// Helper to calculate and log bounds of polygon
+function logPolygonBounds(points: Array<{ lat: number; lng: number }>) {
+  if (points.length < 3) {
+    console.warn("Cannot calculate bounds for polygon with less than 3 points");
+    return;
+  }
+
+  // Calculate min/max lat/lng
+  let minLat = points[0].lat;
+  let maxLat = points[0].lat;
+  let minLng = points[0].lng;
+  let maxLng = points[0].lng;
+
+  for (let i = 1; i < points.length; i++) {
+    minLat = Math.min(minLat, points[i].lat);
+    maxLat = Math.max(maxLat, points[i].lat);
+    minLng = Math.min(minLng, points[i].lng);
+    maxLng = Math.max(maxLng, points[i].lng);
+  }
+
+  // Calculate center and dimensions
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+  const latSpan = maxLat - minLat;
+  const lngSpan = maxLng - minLng;
+
+  console.log(
+    `Polygon bounds: center [${centerLat.toFixed(6)}, ${centerLng.toFixed(
+      6
+    )}], dimensions ${latSpan.toFixed(6)}° x ${lngSpan.toFixed(6)}°`
+  );
+}
+
+/**
+ * Similar to the server-side implementation, we simplify polygons client-side before sending to the API
+ * @param coordinates Flat array of coordinates [lat1, lng1, lat2, lng2, ...]
+ * @param tolerance Simplification tolerance (higher = more simplification)
+ * @returns Simplified coordinates array
+ */
+function simplifyPolygonPoints(
+  coordinates: number[],
+  maxPoints = 200
+): number[] {
+  // If below threshold, don't simplify
+  if (coordinates.length / 2 <= maxPoints) {
+    return coordinates;
+  }
+
+  // Start with a low tolerance and gradually increase until we get below maxPoints
+  let tolerance = 0.0001;
+  let simplified = [...coordinates];
+
+  console.log(
+    `Polygon has ${coordinates.length / 2} points, needs simplification`
+  );
+
+  // Keep simplifying until we're below the maximum points or hit max tolerance
+  while (simplified.length / 2 > maxPoints && tolerance <= 0.01) {
+    // Create point objects from flat coordinates
+    const points = [];
+    for (let i = 0; i < coordinates.length; i += 2) {
+      if (i + 1 < coordinates.length) {
+        points.push({
+          lat: coordinates[i],
+          lng: coordinates[i + 1],
+        });
+      }
+    }
+
+    // Check if polygon is closed
+    const isClosed =
+      points.length > 0 &&
+      points[0].lat === points[points.length - 1].lat &&
+      points[0].lng === points[points.length - 1].lng;
+
+    // Remove closing point temporarily
+    const processPoints = isClosed ? points.slice(0, -1) : [...points];
+
+    // Simplify using Douglas-Peucker
+    const result = douglasPeuckerSimplify(processPoints, tolerance);
+
+    // Ensure we have at least 3 points
+    if (result.length < 3) {
+      console.warn("Simplification resulted in less than 3 points, stopping");
+      break; // Can't simplify further
+    }
+
+    // Re-close the polygon if needed
+    if (isClosed) {
+      result.push({ ...result[0] });
+    }
+
+    // Calculate and log the bounds of the simplified polygon
+    logPolygonBounds(result);
+
+    // Convert back to flat array
+    simplified = [];
+    for (const point of result) {
+      simplified.push(point.lat, point.lng);
+    }
+
+    // Log progress
+    console.log(
+      `Simplified to ${
+        simplified.length / 2
+      } points with tolerance ${tolerance}${
+        simplified.length / 2 > maxPoints ? " (still above limit)" : ""
+      }`
+    );
+
+    // Increase tolerance for next iteration
+    tolerance *= 2;
+  }
+
+  // Final check for uniqueness and validity
+  const numPoints = simplified.length / 2;
+  if (numPoints < 3) {
+    console.warn(
+      "WARNING: Simplified polygon has less than 3 points, may be invalid"
+    );
+  }
+
+  console.log(
+    `Polygon simplification complete: ${
+      coordinates.length / 2
+    } → ${numPoints} points`
+  );
+  return simplified;
+}
+
 // Component to update the map view when location changes
 function MapUpdater({ location }: { location: LocationDocument | null }) {
   const map = useMap();
@@ -403,6 +627,10 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const loadedPagesRef = useRef<Set<number>>(new Set());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
+  // Add state for polygon simplification indicators
+  const [usedSimplifiedPolygon, setUsedSimplifiedPolygon] = useState(false);
+  const usedSimplifiedPolygonRef = useRef<boolean>(false);
+
   // Generate a new search ID when location changes
   useEffect(() => {
     // Cancel any pending requests from previous searches
@@ -536,6 +764,25 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       // Add to loaded pages set
       loadedPagesRef.current.add(page);
 
+      // Simplify polygon if needed - prevents Typesense 4000 char limit errors
+      const originalPointCount = coordinates.length / 2;
+      const simplifiedCoordinates = simplifyPolygonPoints(coordinates, 190); // 190 points is safe (~3800 chars)
+      const wasSimplified = simplifiedCoordinates.length !== coordinates.length;
+
+      if (wasSimplified) {
+        console.log(
+          `Simplified polygon from ${originalPointCount} to ${
+            simplifiedCoordinates.length / 2
+          } points for API request`
+        );
+
+        // Update UI state if this is a new simplification
+        if (page === 1 && !usedSimplifiedPolygonRef.current) {
+          setUsedSimplifiedPolygon(true);
+          usedSimplifiedPolygonRef.current = true;
+        }
+      }
+
       // Capture the current search ID at the time the request is made
       const currentSearchId = searchId;
       currentSearchIdRef.current = currentSearchId;
@@ -567,7 +814,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             Pragma: "no-cache",
           },
           body: JSON.stringify({
-            coordinates,
+            coordinates: simplifiedCoordinates, // Send simplified coordinates
             query: "*", // Default query to match all documents
             page,
             per_page: PAGE_SIZE,
@@ -589,6 +836,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         // Only update state if the search ID hasn't changed
         if (currentSearchId === searchId) {
+          // Check if server did additional simplification
+          if (data.simplificationApplied && !usedSimplifiedPolygonRef.current) {
+            setUsedSimplifiedPolygon(true);
+            usedSimplifiedPolygonRef.current = true;
+          }
+
           if (data.properties && Array.isArray(data.properties)) {
             if (page === 1) {
               // First page - replace existing properties
@@ -1080,6 +1333,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               properties found
               {usingSampleData && (
                 <span className="text-yellow-600 ml-1">(Sample data)</span>
+              )}
+              {usedSimplifiedPolygon && (
+                <span className="text-blue-600 ml-1 relative group cursor-help">
+                  (Simplified polygon)
+                  <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded py-1 px-2 w-48 hidden group-hover:block">
+                    Polygon simplified to stay within Typesense's 4000 character
+                    limit. All properties within the area are still included.
+                  </span>
+                </span>
               )}
             </p>
             {hasMoreResults && loadingMore && (
