@@ -12,7 +12,7 @@ declare module "typesense" {
         connectionTimeoutSeconds?: number;
       });
 
-      collections(): {
+      collections(collectionName?: string): {
         retrieve(): Promise<Record<string, unknown>>;
         documents(): {
           search(

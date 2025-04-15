@@ -12,6 +12,7 @@ export interface LocationDocument {
   name_2?: string;
   name_3?: string;
   name_4?: string;
+  type_0?: string;
   type_1?: string;
   type_2?: string;
   type_3?: string;
