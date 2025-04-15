@@ -22,15 +22,17 @@ export default function SearchBox({
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLDivElement>(null);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
 
   // Generate random counts for locations after component mounts
   useEffect(() => {
     const counts: Record<string, number> = {};
     for (const hit of hits) {
-      const key = `${hit.gid_0}_${hit.gid_1 || ""}_${hit.gid_2 || ""}_${
-        hit.gid_3 || ""
-      }`;
+      const key = `${hit.id || ""}__${hit.gid_0}_${hit.gid_1 || ""}_${
+        hit.gid_2 || ""
+      }_${hit.gid_3 || ""}_${hit.gid_4 || ""}_level${hit.level}`;
       counts[key] = Math.floor(Math.random() * 1000) + 1;
     }
     setRandomCounts(counts);
@@ -113,6 +115,7 @@ export default function SearchBox({
   // Helper function to get display name for a location
   const getDisplayName = (location: LocationDocument): string => {
     return (
+      location.name_4 ||
       location.name_3 ||
       location.name_2 ||
       location.name_1 ||
@@ -127,6 +130,7 @@ export default function SearchBox({
     if (location.level === 1) return "Region (Distrito)";
     if (location.level === 2) return "County (Concelho)";
     if (location.level === 3) return "Parish (Freguesia)";
+    if (location.level === 4) return "Neighborhood (Bairro)";
     return `Nível ${location.level}`;
   };
 
@@ -140,6 +144,8 @@ export default function SearchBox({
       typeDescription = location.type_2 || "Municipality";
     } else if (location.level === 3) {
       typeDescription = location.type_3 || "Parish";
+    } else if (location.level === 4) {
+      typeDescription = location.type_4 || "Neighborhood";
     }
 
     // Add parent region if available
@@ -148,6 +154,8 @@ export default function SearchBox({
       parentInfo = ` in ${location.name_2}`;
     } else if (location.level === 2 && location.name_1) {
       parentInfo = ` in ${location.name_1}`;
+    } else if (location.level === 4 && location.name_3) {
+      parentInfo = ` in ${location.name_3}`;
     }
 
     return `${typeDescription}${parentInfo}`;
@@ -155,9 +163,9 @@ export default function SearchBox({
 
   // Get location count, using consistent random numbers or real count if available
   const getLocationCount = (hit: LocationDocument): number => {
-    const key = `${hit.gid_0}_${hit.gid_1 || ""}_${hit.gid_2 || ""}_${
-      hit.gid_3 || ""
-    }`;
+    const key = `${hit.id || ""}__${hit.gid_0}_${hit.gid_1 || ""}_${
+      hit.gid_2 || ""
+    }_${hit.gid_3 || ""}_${hit.gid_4 || ""}_level${hit.level}`;
     return hit.count || randomCounts[key] || 0;
   };
 
@@ -187,64 +195,54 @@ export default function SearchBox({
 
       {showSuggestions && hits.length > 0 && (
         <div
-          ref={suggestionsRef}
-          id="location-suggestions"
           className="absolute z-[1000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-96 overflow-y-auto"
-          tabIndex={-1}
+          id="search-suggestions"
+          ref={listboxRef}
+          aria-label="Location suggestions"
         >
-          <ul ref={listRef} aria-label="Search suggestions" className="py-2">
-            {hits.map((hit, index) => {
-              const locationName = getDisplayName(hit);
-              const locationType = getLocationTypeLabel(hit);
-              const locationDescription = getLocationDescription(hit);
-              const locationKey = `${hit.gid_0}_${hit.gid_1 || ""}_${
-                hit.gid_2 || ""
-              }_${hit.gid_3 || ""}`;
-              const isActive = index === activeIndex;
+          {hits.map((hit, index) => {
+            const isActive = index === activeSuggestionIndex;
+            const locationKey = `loc-${hit.id || index}-${hit.gid_0}${
+              hit.gid_1 || ""
+            }${hit.gid_2 || ""}${hit.gid_3 || ""}`;
 
-              return (
-                <li
-                  key={locationKey || `location-${index}`}
-                  id={`location-item-${index}`}
-                  role="option"
-                  aria-selected={isActive}
-                  className={`px-4 py-2 cursor-pointer ${
-                    isActive ? "bg-gray-100" : ""
-                  } hover:bg-gray-100`}
-                  onClick={() => handleSelectLocation(hit)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      handleSelectLocation(hit);
-                    }
-                  }}
-                  tabIndex={0}
-                >
-                  <div className="flex items-center">
-                    <MapPinIcon
-                      className="h-5 w-5 mr-2 text-gray-500"
-                      aria-hidden="true"
-                    />
-                    <div className="flex-1">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{locationName}</span>
-                        <span className="text-sm bg-gray-100 rounded-full px-2 py-0.5 text-gray-600">
-                          {getLocationCount(hit)}
+            return (
+              <div
+                key={locationKey}
+                id={`option-${index}`}
+                aria-selected={isActive}
+                className={`px-4 py-2 cursor-pointer ${
+                  isActive ? "bg-gray-100" : ""
+                } hover:bg-gray-100`}
+                onMouseDown={() => handleSelectLocation(hit)}
+                onMouseEnter={() => setActiveSuggestionIndex(index)}
+                ref={isActive ? activeItemRef : null}
+              >
+                <div className="flex items-center">
+                  <MapPinIcon
+                    className="h-5 w-5 mr-2 text-gray-500"
+                    aria-hidden="true"
+                  />
+                  <div className="flex-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{getDisplayName(hit)}</span>
+                      <span className="text-sm bg-gray-100 rounded-full px-2 py-0.5 text-gray-600">
+                        {getLocationCount(hit)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col text-gray-500 text-sm">
+                      <span>{getLocationTypeLabel(hit)}</span>
+                      {getLocationDescription(hit) && (
+                        <span className="text-xs mt-0.5">
+                          {getLocationDescription(hit)}
                         </span>
-                      </div>
-                      <div className="flex flex-col text-gray-500 text-sm">
-                        <span>{locationType}</span>
-                        {locationDescription && (
-                          <span className="text-xs mt-0.5">
-                            {locationDescription}
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
