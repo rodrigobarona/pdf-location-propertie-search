@@ -207,27 +207,6 @@ function extractPolygonCoordinates(
   }
 }
 
-// Helper function to find the polygon with the most points
-function findLargestPolygon(polygons: number[][][]): number[][][] {
-  if (!Array.isArray(polygons) || polygons.length === 0) {
-    return [];
-  }
-
-  // Find the polygon with the most points (coordinates)
-  let largestPolygon = polygons[0];
-  let maxPoints = polygons[0].length;
-
-  for (let i = 1; i < polygons.length; i++) {
-    if (polygons[i].length > maxPoints) {
-      largestPolygon = polygons[i];
-      maxPoints = polygons[i].length;
-    }
-  }
-
-  // Return the largest polygon as a single polygon structure
-  return [largestPolygon];
-}
-
 // Component to update the map view when location changes
 function MapUpdater({ location }: { location: LocationDocument | null }) {
   const map = useMap();
@@ -273,28 +252,29 @@ function MapUpdater({ location }: { location: LocationDocument | null }) {
         // Parse the coordinates_json field
         const parsedCoordinates = JSON.parse(location.coordinates_json);
 
-        // Log the parsed coordinates for debugging
-        console.log("Parsed coordinates:", parsedCoordinates);
-
-        // For MultiPolygon, find the largest polygon
+        // For multipolygons, use all polygons to ensure the entire area is visible
         let validGeoJson: GeoJSON.FeatureCollection;
+
         if (
           location.geometry_type === "MultiPolygon" &&
           Array.isArray(parsedCoordinates)
         ) {
-          // Handle MultiPolygon coordinates with appropriate typing
-          const multiPolygonCoords = parsedCoordinates as number[][][][];
-          // Find the largest polygon (if possible)
-          const largestPolygon = findLargestPolygon(multiPolygonCoords[0]);
-          if (largestPolygon) {
-            console.log("Using largest polygon for map bounds");
-            validGeoJson = createValidGeoJSON(largestPolygon, "Polygon");
-          } else {
-            validGeoJson = createValidGeoJSON(
-              multiPolygonCoords[0],
-              location.geometry_type
-            );
-          }
+          // Use the entire MultiPolygon for bounds calculation to ensure all parts are visible
+          validGeoJson = {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: {
+                  type: "MultiPolygon",
+                  coordinates: parsedCoordinates as number[][][][],
+                },
+              },
+            ],
+          };
+
+          console.log("Using complete MultiPolygon for map bounds");
         } else {
           validGeoJson = createValidGeoJSON(
             parsedCoordinates,
@@ -302,21 +282,39 @@ function MapUpdater({ location }: { location: LocationDocument | null }) {
           );
         }
 
-        console.log("Valid GeoJSON:", validGeoJson);
-
         // Create a Leaflet GeoJSON layer to calculate bounds
         const layer = L.geoJSON(validGeoJson);
 
         if (layer.getBounds && typeof layer.getBounds === "function") {
           const bounds = layer.getBounds();
-          console.log("Bounds:", bounds);
 
           if (bounds.isValid()) {
-            // Fit the map to the bounds of the selected location with some padding
+            // Calculate center point for debugging
+            const center = bounds.getCenter();
+            console.log(`Bounds center: [${center.lat}, ${center.lng}]`);
+            console.log(
+              `Bounds dimensions: ${bounds.getNorth() - bounds.getSouth()}° x ${
+                bounds.getEast() - bounds.getWest()
+              }°`
+            );
+
+            // Fit the map to the bounds with generous padding to ensure visibility
             map.fitBounds(bounds, {
-              padding: [50, 50],
-              maxZoom: 13, // Limit zoom level to prevent zooming too far in
+              padding: [100, 100], // Increased padding from 50 to 100
+              maxZoom: 12, // Reduced max zoom to prevent zooming too far in
             });
+
+            // Optional: Check if bounds are too small and manually adjust zoom
+            const latSpan = bounds.getNorth() - bounds.getSouth();
+            const lngSpan = bounds.getEast() - bounds.getWest();
+
+            if (latSpan < 0.05 || lngSpan < 0.05) {
+              // For very small areas, zoom out a bit more
+              setTimeout(() => {
+                map.setZoom(map.getZoom() - 1);
+              }, 100);
+            }
+
             return;
           }
         }
