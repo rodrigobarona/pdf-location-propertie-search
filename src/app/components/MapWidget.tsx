@@ -743,7 +743,186 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
   // Function to fetch properties with Typesense v28 best practices
   const fetchProperties = useCallback(
-    async (coordinates: number[], page = 1) => {
+    async (
+      coordinates: number[],
+      page = 1,
+      isPointSearch = false,
+      pointCenter?: [number, number],
+      pointRadius?: number
+    ) => {
+      // For point search, create a specific request payload
+      if (isPointSearch && pointCenter && pointRadius) {
+        // Skip if we already loaded this page for the current search
+        if (
+          loadedPagesRef.current.has(page) &&
+          searchId === currentSearchIdRef.current
+        ) {
+          console.log(
+            `Point search page ${page} already loaded for searchId: ${searchId}, skipping`
+          );
+          return;
+        }
+
+        // Add to loaded pages set
+        loadedPagesRef.current.add(page);
+
+        // Capture the current search ID at the time the request is made
+        const currentSearchId = searchId;
+        currentSearchIdRef.current = currentSearchId;
+
+        // Create abort controller for this request
+        const controller = new AbortController();
+        abortControllersRef.current.set(
+          `${currentSearchId}_page${page}`,
+          controller
+        );
+
+        console.log(
+          `Fetching point-radius properties page ${page} with searchId: ${currentSearchId} at [${pointCenter[0]}, ${pointCenter[1]}] with radius ${pointRadius}m`
+        );
+
+        if (page === 1) {
+          setIsLoadingProperties(true);
+        } else {
+          setLoadingMore(true);
+        }
+        setUsingSampleData(false);
+
+        try {
+          // Create GeoJSON point object
+          const pointGeoJSON = {
+            type: "Point",
+            coordinates: [pointCenter[1], pointCenter[0]], // Convert from [lat, lng] to [lng, lat] for GeoJSON
+          };
+
+          const response = await fetch("/api/properties/search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+            },
+            body: JSON.stringify({
+              geometry_type: "Point",
+              coordinates_json: JSON.stringify(pointGeoJSON),
+              radius: pointRadius,
+              query: "*", // Default query to match all documents
+              page,
+              per_page: PAGE_SIZE,
+              searchId: currentSearchId, // Include search ID with request
+            }),
+            cache: "no-store",
+            signal: controller.signal,
+            next: { revalidate: 0 }, // NextJS-specific: don't cache this request
+          });
+
+          // Handle response the same way as polygon search
+          abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
+
+          if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          // Only update state if the search ID hasn't changed
+          if (currentSearchId === searchId) {
+            if (data.properties && Array.isArray(data.properties)) {
+              if (page === 1) {
+                // First page - replace existing properties
+                setProperties(data.properties);
+              } else {
+                // Subsequent pages - append to existing properties
+                setProperties((prevProperties) => {
+                  // Create a set of existing IDs to avoid duplicates
+                  const existingIds = new Set(
+                    prevProperties.map(
+                      (p) => p.id || (p as { document_id?: string }).document_id
+                    )
+                  );
+
+                  // Add only unique properties
+                  const newProperties = data.properties.filter(
+                    (p: { id?: string; document_id?: string }) =>
+                      !existingIds.has(p.id || p.document_id)
+                  );
+
+                  return [...prevProperties, ...newProperties];
+                });
+              }
+
+              // Update total count
+              setTotalHits(data.count || 0);
+
+              // Check if there are more results to load
+              const totalFetched = page * PAGE_SIZE;
+              const hasMore = totalFetched < (data.count || 0);
+              setHasMoreResults(hasMore);
+              setCurrentPage(page);
+
+              setUsingSampleData(!!data.usingSampleData);
+              console.log(
+                `Found ${data.count || 0} properties in radius, loaded ${
+                  page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
+                } for searchId: ${currentSearchId}`
+              );
+
+              // Auto-load next page if there are more results
+              if (hasMore) {
+                // Use a slight delay to avoid overwhelming the server
+                setTimeout(() => {
+                  if (currentSearchId === searchId && isAutoLoading) {
+                    fetchProperties(
+                      [],
+                      page + 1,
+                      true,
+                      pointCenter,
+                      pointRadius
+                    );
+                  }
+                }, 800);
+              }
+            } else {
+              if (page === 1) {
+                setProperties([]);
+                setTotalHits(0);
+                setHasMoreResults(false);
+              }
+              console.log(
+                `No properties found in radius for searchId: ${currentSearchId}`
+              );
+            }
+          }
+        } catch (error: unknown) {
+          // Don't report errors for aborted requests
+          if (error instanceof Error && error.name !== "AbortError") {
+            console.error(
+              `Error fetching point properties for searchId ${currentSearchId}:`,
+              error
+            );
+
+            if (currentSearchId === searchId && page === 1) {
+              // Use sample data as fallback
+              handleFetchError([]);
+            }
+          }
+        } finally {
+          // Clean up the controller if it wasn't already removed
+          abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
+
+          // Only update loading state if this search is still current
+          if (currentSearchId === searchId) {
+            if (page === 1) {
+              setIsLoadingProperties(false);
+            } else {
+              setLoadingMore(false);
+            }
+          }
+        }
+        return;
+      }
+
+      // Original polygon search logic
       if (!coordinates || coordinates.length === 0) {
         console.log("No coordinates provided for property search");
         return;
@@ -933,45 +1112,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError, searchId, isAutoLoading]
+    [searchId, handleFetchError]
   );
 
-  // Function to load more properties (manual trigger if auto-loading is disabled)
-  const loadMoreProperties = useCallback(() => {
-    if (hasMoreResults && !loadingMore && polygonCoordinates) {
-      const nextPage = currentPage + 1;
-      fetchProperties(polygonCoordinates, nextPage);
-    }
-  }, [
-    hasMoreResults,
-    loadingMore,
-    polygonCoordinates,
-    currentPage,
-    fetchProperties,
-  ]);
-
-  // Use geometry directly from location when available, otherwise extract from GeoJSON
+  // Use geometry directly from location when available
   useEffect(() => {
     if (!locationResult) {
       setPolygonCoordinates(null);
       return;
     }
-
-    // Generate a new search ID when location changes to ensure fresh results
-    const newSearchId = generateSearchId();
-    console.log(
-      `Location changed - generating new search ID: ${newSearchId} for location: ${
-        locationResult?.name_1 || locationResult?.name_2 || "unknown"
-      }`
-    );
-    setSearchId(newSearchId);
-    currentSearchIdRef.current = newSearchId;
-
-    // Reset pagination state when location changes
-    setCurrentPage(1);
-    setProperties([]);
-    setTotalHits(0);
-    setHasMoreResults(false);
 
     // For polygon locations, try to get coordinates directly from the location
     if (
@@ -1052,20 +1201,42 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       }
     }
 
-    // Fall back to extracting from GeoJSON if direct parsing failed
+    // If we get here and no polygon coordinates were set, try to extract from geoJsonData
     if (geoJsonData) {
       const coordinates = extractPolygonCoordinates(geoJsonData);
-      console.log("Extracted coordinates from GeoJSON:", coordinates);
-      setPolygonCoordinates(coordinates);
-    } else {
-      setPolygonCoordinates(null);
+      if (coordinates) {
+        console.log(
+          "Extracted coordinates from GeoJSON:",
+          coordinates.length / 2,
+          "points"
+        );
+        setPolygonCoordinates(coordinates);
+      }
     }
   }, [locationResult, geoJsonData]);
 
   // Fetch properties inside polygon when coordinates change or when a point location is selected
   useEffect(() => {
+    // Avoid running on initial render
+    if (!locationResult) return;
+
+    console.log(
+      `Search state updated - isPointLocation: ${isPointLocation}, hasPolygonCoordinates: ${Boolean(
+        polygonCoordinates && polygonCoordinates.length >= 6
+      )}`
+    );
+
     // For polygon search: check if we have valid polygon coordinates
     if (polygonCoordinates && polygonCoordinates.length >= 6) {
+      // Don't do polygon search if this is a point location
+      if (isPointLocation) {
+        console.log("Skipping polygon search because this is a point location");
+        return;
+      }
+
+      console.log(
+        `Starting polygon search with ${polygonCoordinates.length / 2} points`
+      );
       // Reset pagination when coordinates change
       setCurrentPage(1);
       setProperties([]);
@@ -1076,19 +1247,24 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
     // For point search: check if we have a point location
     if (isPointLocation && pointCenter && pointRadius) {
+      console.log(
+        `Starting point-radius search at [${pointCenter[0]}, ${pointCenter[1]}] with radius ${pointRadius}m`
+      );
       // Reset pagination when point changes
       setCurrentPage(1);
       setProperties([]);
       setTotalHits(0);
-      fetchProperties(polygonCoordinates || [], 1);
+      fetchProperties([], 1, true, pointCenter, pointRadius);
       return;
     }
 
     // Clear properties if no valid search parameters
+    console.log("No valid search parameters, clearing properties");
     setProperties([]);
     setTotalHits(0);
     setHasMoreResults(false);
   }, [
+    locationResult,
     polygonCoordinates,
     isPointLocation,
     pointCenter,
@@ -1115,7 +1291,16 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       // Use direct lat/lng if available
       if (locationResult.point_lat && locationResult.point_lng) {
         setPointCenter([locationResult.point_lat, locationResult.point_lng]);
-        setPointRadius(locationResult.radius || 500);
+
+        // Always use the radius from the location document
+        // Level 4 locations always have a radius defined in their document
+        // But add a fallback just in case it's missing
+        const radius = locationResult.radius || 3000;
+
+        console.log(
+          `Using radius of ${radius}m for point search at [${locationResult.point_lat}, ${locationResult.point_lng}]`
+        );
+        setPointRadius(radius);
         setPointName(
           locationResult.name_4 ||
             locationResult.name_3 ||
@@ -1136,7 +1321,16 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             // GeoJSON uses [lng, lat] format, but Leaflet uses [lat, lng]
             const [lng, lat] = parsed.coordinates;
             setPointCenter([lat, lng]);
-            setPointRadius(locationResult.radius || 500);
+
+            // Always use the radius from the location document
+            // Level 4 locations always have a radius defined in their document
+            // But add a fallback just in case it's missing
+            const radius = locationResult.radius || 3000;
+
+            console.log(
+              `Using radius of ${radius}m for point search at [${lat}, ${lng}]`
+            );
+            setPointRadius(radius);
             setPointName(
               locationResult.name_4 ||
                 locationResult.name_3 ||
@@ -1214,6 +1408,31 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       layer.bindPopup(popupContent);
     }
   };
+
+  // Function to load more properties (manual trigger if auto-loading is disabled)
+  const loadMoreProperties = useCallback(() => {
+    if (hasMoreResults && !loadingMore) {
+      const nextPage = currentPage + 1;
+
+      // Handle different search types
+      if (isPointLocation && pointCenter && pointRadius) {
+        // For point-radius search
+        fetchProperties([], nextPage, true, pointCenter, pointRadius);
+      } else if (polygonCoordinates) {
+        // For polygon search
+        fetchProperties(polygonCoordinates, nextPage);
+      }
+    }
+  }, [
+    hasMoreResults,
+    loadingMore,
+    currentPage,
+    isPointLocation,
+    pointCenter,
+    pointRadius,
+    polygonCoordinates,
+    fetchProperties,
+  ]);
 
   if (!isMounted) {
     return (
