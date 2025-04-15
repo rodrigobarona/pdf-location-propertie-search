@@ -623,6 +623,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [pointCenter, setPointCenter] = useState<[number, number] | null>(null);
   const [pointRadius, setPointRadius] = useState<number | null>(null);
   const [pointName, setPointName] = useState<string>("");
+  const [useBoundsSearch, setUseBoundsSearch] = useState(false);
+  const [boundsSearch, setBoundsSearch] = useState(false);
+
+  // We can't directly ref the MapContainer in react-leaflet
+  // We'll get the map instance through the MapFunctions component
+  const mapInstance = useRef<L.Map | null>(null);
 
   // Add state for properties inside polygon
   const [properties, setProperties] = useState<PropertyDocument[]>([]);
@@ -651,6 +657,11 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   // Add state for polygon simplification indicators
   const [usedSimplifiedPolygon, setUsedSimplifiedPolygon] = useState(false);
   const usedSimplifiedPolygonRef = useRef<boolean>(false);
+
+  // Function to store map reference from child component
+  const setMapReference = useCallback((map: L.Map) => {
+    mapInstance.current = map;
+  }, []);
 
   // Generate a new search ID when location changes
   useEffect(() => {
@@ -823,7 +834,113 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     [searchId]
   );
 
-  // Function to fetch properties with Typesense v28 best practices
+  // Add a simple reset function
+  const resetSearch = () => {
+    // Clear location data
+    setGeoJsonData(null);
+    setPolygonCoordinates(null);
+    setIsPointLocation(false);
+    setPointCenter(null);
+    setPointRadius(null);
+
+    // Reset pagination
+    setCurrentPage(1);
+    setProperties([]);
+    setTotalHits(0);
+    setHasMoreResults(false);
+
+    // Set loading state
+    setIsLoadingProperties(true);
+  };
+
+  // Add a function to be called when the "Search Visible Area" button is clicked
+  const handleSearchVisibleArea = () => {
+    if (!mapInstance.current) {
+      console.log("Map not ready");
+      return;
+    }
+
+    // Reset search state
+    resetSearch();
+
+    // Track that we're doing a bounds search now
+    setBoundsSearch(true);
+    setUseBoundsSearch(true);
+
+    // Get current bounds
+    const bounds = mapInstance.current.getBounds();
+    const nw = bounds.getNorthWest();
+    const ne = bounds.getNorthEast();
+    const se = bounds.getSouthEast();
+    const sw = bounds.getSouthWest();
+
+    // Create coordinates array
+    const coordsArray = [
+      nw.lat,
+      nw.lng,
+      ne.lat,
+      ne.lng,
+      se.lat,
+      se.lng,
+      sw.lat,
+      sw.lng,
+      nw.lat,
+      nw.lng, // Close the polygon
+    ];
+
+    // Create a new search ID
+    const searchId = `bounds_${Date.now()}`;
+
+    console.log(
+      "Searching by visible bounds:",
+      `NW: [${nw.lat.toFixed(4)}, ${nw.lng.toFixed(4)}]`,
+      `SE: [${se.lat.toFixed(4)}, ${se.lng.toFixed(4)}]`
+    );
+
+    // Do the search
+    fetch("/api/properties/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Bounds-Search": "true",
+      },
+      body: JSON.stringify({
+        coordinates: coordsArray,
+        query: "*",
+        page: 1,
+        per_page: PAGE_SIZE,
+        searchId: searchId,
+        is_bounds_search: true,
+        timestamp: Date.now(),
+      }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        console.log(`Found ${data.found || data.count || 0} properties`);
+
+        // Update UI with results
+        setProperties(data.properties || []);
+        setTotalHits(data.found || data.count || 0);
+        setHasMoreResults((data.found || data.count || 0) > PAGE_SIZE);
+        setUsingSampleData(!!data.usingSampleData);
+
+        // Update loading state
+        setIsLoadingProperties(false);
+      })
+      .catch((error) => {
+        console.error("Error searching by bounds:", error);
+        setProperties([]);
+        setTotalHits(0);
+        setIsLoadingProperties(false);
+      });
+  };
+
+  // Helper function to fetch properties with Typesense v28 best practices
   const fetchProperties = useCallback(
     async (
       coordinates: number[],
@@ -836,16 +953,6 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       const requestId = `req_${Date.now()}_${Math.random()
         .toString(36)
         .substring(2, 8)}`;
-
-      // Capture the current location level at the time the request is made
-      const currentLocationLevel = locationResult?.level;
-      const currentLocationId = locationResult?.id;
-      const currentLocationName =
-        locationResult?.name_4 ||
-        locationResult?.name_3 ||
-        locationResult?.name_2 ||
-        locationResult?.name_1 ||
-        "unknown";
 
       // For point search, create a specific request payload
       if (isPointSearch && pointCenter && pointRadius) {
@@ -904,9 +1011,14 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               // Add unique timestamp to help with cache busting
               "X-Request-Time": Date.now().toString(),
               // Add location level to request headers for tracing
-              "X-Location-Level": String(currentLocationLevel || ""),
-              "X-Location-ID": currentLocationId || "",
-              "X-Location-Name": currentLocationName,
+              "X-Location-Level": String(locationResult?.level || ""),
+              "X-Location-ID": locationResult?.id || "",
+              "X-Location-Name":
+                locationResult?.name_4 ||
+                locationResult?.name_3 ||
+                locationResult?.name_2 ||
+                locationResult?.name_1 ||
+                "unknown",
             },
             body: JSON.stringify({
               // Use filter_by parameter with _geoloc filter for radius search
@@ -915,9 +1027,14 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               page,
               per_page: PAGE_SIZE,
               searchId: currentSearchId, // Include search ID with request
-              location_level: currentLocationLevel, // Include location level for filtering
-              location_id: currentLocationId, // Include location ID for filtering
-              location_name: currentLocationName, // Include location name for better identification
+              location_level: locationResult?.level, // Include location level for filtering
+              location_id: locationResult?.id, // Include location ID for filtering
+              location_name:
+                locationResult?.name_4 ||
+                locationResult?.name_3 ||
+                locationResult?.name_2 ||
+                locationResult?.name_1 ||
+                "unknown", // Include location name for better identification
               // Add a timestamp to ensure each request is unique
               timestamp: Date.now(),
             }),
@@ -937,11 +1054,11 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
           // First verify that the location hasn't changed since we started the request
           if (
-            currentLocationLevel !== locationResult?.level ||
-            currentLocationId !== locationResult?.id
+            locationResult?.level !== locationResult?.level ||
+            locationResult?.id !== locationResult?.id
           ) {
             console.log(
-              `[${requestId}] Location changed during request (was: level ${currentLocationLevel} / id ${currentLocationId}, now: level ${locationResult?.level} / id ${locationResult?.id}), discarding results`
+              `[${requestId}] Location changed during request, discarding results`
             );
             return;
           }
@@ -963,7 +1080,13 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               if (page === 1) {
                 // First page - replace existing properties
                 console.log(
-                  `[${requestId}] Setting initial properties for ${currentLocationName} (level ${currentLocationLevel})`
+                  `[${requestId}] Setting initial properties for ${
+                    locationResult?.name_4 ||
+                    locationResult?.name_3 ||
+                    locationResult?.name_2 ||
+                    locationResult?.name_1 ||
+                    "unknown"
+                  } (level ${locationResult?.level})`
                 );
                 setProperties(data.properties);
               } else {
@@ -983,7 +1106,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                   );
 
                   console.log(
-                    `[${requestId}] Adding ${newProperties.length} more properties for ${currentLocationName} (level ${currentLocationLevel})`
+                    `[${requestId}] Adding ${
+                      newProperties.length
+                    } more properties for ${
+                      locationResult?.name_4 ||
+                      locationResult?.name_3 ||
+                      locationResult?.name_2 ||
+                      locationResult?.name_1 ||
+                      "unknown"
+                    } (level ${locationResult?.level})`
                   );
                   return [...prevProperties, ...newProperties];
                 });
@@ -1021,8 +1152,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                   // Triple check that the location and search ID haven't changed
                   if (
                     currentSearchId === searchId &&
-                    currentLocationLevel === locationResult?.level &&
-                    currentLocationId === locationResult?.id
+                    locationResult?.level === locationResult?.level &&
+                    locationResult?.id === locationResult?.id
                   ) {
                     fetchProperties(
                       [],
@@ -1060,8 +1191,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             if (
               currentSearchId === searchId &&
               page === 1 &&
-              currentLocationLevel === locationResult?.level &&
-              currentLocationId === locationResult?.id
+              locationResult?.level === locationResult?.level &&
+              locationResult?.id === locationResult?.id
             ) {
               // Use sample data as fallback
               handleFetchError([]);
@@ -1138,7 +1269,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       );
 
       console.log(
-        `Fetching properties page ${page} with searchId: ${currentSearchId}`
+        `Fetching properties page ${page} with searchId: ${currentSearchId} (${
+          isPointSearch ? "point-radius search" : "polygon search"
+        })`
       );
 
       if (page === 1) {
@@ -1149,36 +1282,50 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       setUsingSampleData(false);
 
       try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
+          "X-Request-Time": Date.now().toString(),
+          "X-Location-Level": String(locationResult?.level || ""),
+          "X-Location-ID": locationResult?.id || "",
+          "X-Location-Name":
+            locationResult?.name_4 ||
+            locationResult?.name_3 ||
+            locationResult?.name_2 ||
+            locationResult?.name_1 ||
+            "unknown",
+        };
+
+        // If this is a bounds search, add special headers
+        if (useBoundsSearch && coordinates.length >= 10) {
+          headers["X-Bounds-Search"] = "true";
+        }
+
         const response = await fetch("/api/properties/search", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
-            Pragma: "no-cache",
-            Expires: "0",
-            // Add unique timestamp to help with cache busting
-            "X-Request-Time": Date.now().toString(),
-            // Add location info to headers
-            "X-Location-Level": String(currentLocationLevel || ""),
-            "X-Location-ID": currentLocationId || "",
-            "X-Location-Name": currentLocationName,
-          },
+          headers,
           body: JSON.stringify({
-            coordinates: simplifiedCoordinates, // Send simplified coordinates
-            query: "*", // Default query to match all documents
+            coordinates: simplifiedCoordinates,
+            query: "*",
             page,
             per_page: PAGE_SIZE,
-            searchId: currentSearchId, // Include search ID with request
-            // Add location info
-            location_level: currentLocationLevel,
-            location_id: currentLocationId,
-            location_name: currentLocationName,
-            // Add a timestamp to ensure each request is unique
+            searchId: currentSearchId,
+            location_level: locationResult?.level,
+            location_id: locationResult?.id,
+            location_name:
+              locationResult?.name_4 ||
+              locationResult?.name_3 ||
+              locationResult?.name_2 ||
+              locationResult?.name_1 ||
+              "unknown",
+            is_bounds_search: useBoundsSearch,
             timestamp: Date.now(),
           }),
           cache: "no-store",
           signal: controller.signal,
-          next: { revalidate: 0 }, // NextJS-specific: don't cache this request
+          next: { revalidate: 0 },
         });
 
         // Clean up the controller
@@ -1190,15 +1337,21 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
         const data = await response.json();
 
-        // First verify that the location hasn't changed since we started the request
-        if (
-          currentLocationLevel !== locationResult?.level ||
-          currentLocationId !== locationResult?.id
-        ) {
-          console.log(
-            `[${requestId}] Location changed during request (was: level ${currentLocationLevel} / id ${currentLocationId}, now: level ${locationResult?.level} / id ${locationResult?.id}), discarding results`
-          );
-          return;
+        // For normal searches (not bounds search), check if the location has changed
+        if (!useBoundsSearch && locationResult) {
+          // Store the original location ID/level that we started the search with
+          const originalLocationId = locationResult.id;
+          const originalLocationLevel = locationResult.level;
+
+          // Check if the current location ID/level matches what we started with
+          const locationChanged =
+            locationResult.id !== originalLocationId ||
+            locationResult.level !== originalLocationLevel;
+
+          if (locationChanged) {
+            console.log(`Location changed during request, discarding results`);
+            return;
+          }
         }
 
         // Only update state if the search ID hasn't changed and matches current search
@@ -1209,7 +1362,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           // Double check the response has our search ID to prevent mixed results
           if (data.searchId && data.searchId !== currentSearchId) {
             console.log(
-              `[${requestId}] Response searchId ${data.searchId} doesn't match current searchId ${currentSearchId}, discarding results`
+              `Response searchId ${data.searchId} doesn't match current searchId ${currentSearchId}, discarding results`
             );
             return;
           }
@@ -1224,7 +1377,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             if (page === 1) {
               // First page - replace existing properties
               console.log(
-                `[${requestId}] Setting initial properties for ${currentLocationName} (level ${currentLocationLevel})`
+                `Setting initial properties (found: ${data.properties.length})`
               );
               setProperties(data.properties);
             } else {
@@ -1243,9 +1396,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                     !existingIds.has(p.id || p.document_id)
                 );
 
-                console.log(
-                  `[${requestId}] Adding ${newProperties.length} more properties for ${currentLocationName} (level ${currentLocationLevel})`
-                );
+                console.log(`Adding ${newProperties.length} more properties`);
                 return [...prevProperties, ...newProperties];
               });
             }
@@ -1254,7 +1405,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             const totalCount =
               data.found !== undefined ? data.found : data.count;
             console.log(
-              `[${requestId}] Total count from API: ${totalCount} (from ${
+              `Total count from API: ${totalCount} (from ${
                 data.found !== undefined ? "found" : "count"
               } property)`
             );
@@ -1268,7 +1419,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
             setUsingSampleData(!!data.usingSampleData);
             console.log(
-              `Found ${totalCount || 0} properties in polygon, loaded ${
+              `Found ${totalCount || 0} properties in ${
+                isPointSearch ? "bounds" : "polygon"
+              }, loaded ${
                 page * PAGE_SIZE > totalCount ? totalCount : page * PAGE_SIZE
               } (${
                 data.points || coordinates.length / 2
@@ -1276,11 +1429,17 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             );
 
             // Auto-load next page if there are more results
-            if (hasMore) {
+            if (hasMore && isAutoLoading) {
               // Use a slight delay to avoid overwhelming the server
               setTimeout(() => {
                 if (currentSearchId === searchId && isAutoLoading) {
-                  fetchProperties(coordinates, page + 1);
+                  fetchProperties(
+                    coordinates,
+                    page + 1,
+                    false,
+                    undefined,
+                    undefined
+                  );
                 }
               }, 800);
             }
@@ -1291,7 +1450,9 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               setHasMoreResults(false);
             }
             console.log(
-              `No properties found in polygon for searchId: ${currentSearchId}`
+              `No properties found in ${
+                isPointSearch ? "bounds" : "polygon"
+              } for searchId: ${currentSearchId}`
             );
           }
         } else {
@@ -1325,7 +1486,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [searchId, handleFetchError, locationResult, isAutoLoading]
+    [searchId, handleFetchError, locationResult, isAutoLoading, useBoundsSearch]
   );
 
   // Use geometry directly from location when available
@@ -1658,7 +1819,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   return (
     <div className="relative h-full w-full">
       <MapContainer
-        center={[39.6, -8.0]} // Center of Portugal
+        center={[39.6, -8.0]}
         zoom={6}
         style={{ height: "100%", width: "100%" }}
         zoomControl={true}
@@ -1750,9 +1911,23 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         })}
 
         <MapUpdater location={locationResult} />
+
+        {/* Add map functions that need access to the map instance */}
+        <MapFunctions onSetMapReference={setMapReference} />
       </MapContainer>
 
-      {/* Status indicator with enhanced UI for auto-loading */}
+      {/* Search by visible area button */}
+      <div className="absolute top-2 right-2 z-[1000]">
+        <button
+          onClick={handleSearchVisibleArea}
+          className="bg-white py-2 px-3 rounded-md shadow-md text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center"
+          type="button"
+        >
+          {boundsSearch ? "Refresh Search Area" : "Search Visible Area"}
+        </button>
+      </div>
+
+      {/* Status indicator */}
       <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-2 z-[1000] text-sm">
         {isLoadingProperties ? (
           <p className="flex items-center">
@@ -1785,24 +1960,34 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 Loading more properties...
               </p>
             )}
-            {hasMoreResults && !loadingMore && !isAutoLoading && (
-              <button
-                type="button"
-                onClick={loadMoreProperties}
-                className="mt-1 text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded w-full"
-              >
-                Load more ({totalHits - properties.length} remaining)
-              </button>
+            {boundsSearch && (
+              <p className="text-xs italic mt-1">Showing visible map area</p>
             )}
           </div>
-        ) : polygonCoordinates ? (
-          <p>No properties found in this area</p>
         ) : (
-          <p>Select an area to see properties</p>
+          <p>No properties found in this area</p>
         )}
       </div>
     </div>
   );
 };
+
+// This component is used to access the map instance with the useMap hook
+function MapFunctions({
+  onSetMapReference,
+}: {
+  onSetMapReference: (map: L.Map) => void;
+}) {
+  const map = useMap();
+
+  // Store the map reference when component mounts
+  useEffect(() => {
+    if (map) {
+      onSetMapReference(map);
+    }
+  }, [map, onSetMapReference]);
+
+  return null;
+}
 
 export default MapWidget;

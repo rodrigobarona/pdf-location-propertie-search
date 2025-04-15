@@ -758,6 +758,11 @@ export async function POST(request: Request) {
           searchCoordinates.length / 2
         } points. Filter string length: ${polygonFilterString.length}`
       );
+
+      // Check if this is a bounding box search (exactly 5 points in a rectangle)
+      if (searchCoordinates.length === 10) {
+        console.log("Detected bounding box search from map bounds");
+      }
     }
 
     // Check if the filter string is still too long after max simplification
