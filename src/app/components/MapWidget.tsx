@@ -366,11 +366,9 @@ interface MapWidgetProps {
   locationResult: LocationDocument | null;
 }
 
-// Generate a unique search ID with timestamp and random string
+// Generate a truly unique search ID with timestamp and random string
 function generateSearchId(): string {
-  const timestamp = Date.now(); // Current time in milliseconds
-  const random = Math.random().toString(36).substring(2, 10); // Random alphanumeric string
-  return `${timestamp}-${random}`;
+  return `search_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 }
 
 // Main map widget
@@ -396,27 +394,46 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const [totalHits, setTotalHits] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const isAutoLoading = true; // Always auto-load, no state/toggle needed
   const PAGE_SIZE = 250;
 
-  // Search ID tracking
+  // Advanced search tracking
   const [searchId, setSearchId] = useState<string>(() => generateSearchId());
   const currentSearchIdRef = useRef<string>("");
-
-  // Add state for auto-loading pagination
-  const [autoLoadEnabled, setAutoLoadEnabled] = useState(true);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadedPagesRef = useRef<Set<number>>(new Set());
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   // Generate a new search ID when location changes
   useEffect(() => {
+    // Cancel any pending requests from previous searches
+    abortControllersRef.current.forEach((controller) => {
+      try {
+        controller.abort();
+      } catch (e) {
+        // Ignore abort errors
+      }
+    });
+    abortControllersRef.current.clear();
+
     const newSearchId = generateSearchId();
     console.log(
-      `Generating new search ID: ${newSearchId} for location: ${
+      `Location changed - generating new search ID: ${newSearchId} for location: ${
         locationResult?.name_1 || locationResult?.name_2 || "unknown"
       }`
     );
+
+    // Reset all search state
     setSearchId(newSearchId);
     currentSearchIdRef.current = newSearchId;
+    loadedPagesRef.current = new Set();
+
+    // Reset UI state
+    setCurrentPage(1);
+    setProperties([]);
+    setTotalHits(0);
+    setHasMoreResults(false);
+    setIsLoadingProperties(false);
+    setLoadingMore(false);
   }, [locationResult]);
 
   useEffect(() => {
@@ -428,6 +445,10 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     async (coordinates: number[]) => {
       // Capture current search ID
       const currentSearchId = searchId;
+
+      // Create abort controller for this request
+      const controller = new AbortController();
+      abortControllersRef.current.set(currentSearchId, controller);
 
       // Use sample data if fetch fails, but only if component is still mounted
       try {
@@ -445,7 +466,12 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             useSampleData: true,
             searchId: currentSearchId,
           }),
+          cache: "no-store",
+          signal: controller.signal,
         });
+
+        // Clean up the controller
+        abortControllersRef.current.delete(currentSearchId);
 
         // Only process response if the search ID hasn't changed
         if (currentSearchId === searchId) {
@@ -453,125 +479,107 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             const sampleData = await sampleResponse.json();
             setProperties(sampleData.properties || []);
             setTotalHits(sampleData.properties?.length || 0);
-            setIsInitialLoad(false);
           } else {
             setProperties([]);
             setTotalHits(0);
           }
           setUsingSampleData(true);
+          setIsLoadingProperties(false);
         } else {
           console.log(
             `Ignoring stale sample data for searchId: ${currentSearchId}, current is: ${searchId}`
           );
         }
       } catch (error) {
-        console.error(
-          `Error fetching sample data for searchId ${currentSearchId}:`,
-          error
-        );
+        // Don't report errors for aborted requests
+        if (error.name !== "AbortError") {
+          console.error(
+            `Error fetching sample data for searchId ${currentSearchId}:`,
+            error
+          );
+        }
 
         // Only update state if the search ID hasn't changed
         if (currentSearchId === searchId) {
           setProperties([]);
           setUsingSampleData(false);
           setTotalHits(0);
-          setIsInitialLoad(false);
+          setIsLoadingProperties(false);
         }
+
+        // Clean up the controller
+        abortControllersRef.current.delete(currentSearchId);
       }
     },
     [searchId]
   );
 
-  // Improved fetch properties function with debouncing
+  // Function to fetch properties with Typesense v28 best practices
   const fetchProperties = useCallback(
-    async (coordinates: number[], page = 1, isLoadMore = false) => {
+    async (coordinates: number[], page = 1) => {
       if (!coordinates || coordinates.length === 0) {
         console.log("No coordinates provided for property search");
         return;
       }
 
-      // Capture the current search ID at the time the request is made
-      const currentSearchId = searchId;
-
-      // Clear any existing timeout
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-
-      // For first page loads, add a small debounce to reduce API calls during polygon changes
-      if (page === 1 && !isLoadMore) {
+      // Skip if we already loaded this page for the current search
+      if (
+        loadedPagesRef.current.has(page) &&
+        searchId === currentSearchIdRef.current
+      ) {
         console.log(
-          `Debouncing search request for searchId: ${currentSearchId}`
+          `Page ${page} already loaded for searchId: ${searchId}, skipping`
         );
-
-        // Set loading indicator immediately
-        setIsLoadingProperties(true);
-
-        // Debounce the actual API call
-        searchTimeoutRef.current = setTimeout(() => {
-          executeSearch(coordinates, page, isLoadMore, currentSearchId);
-        }, 300); // 300ms debounce
-
         return;
       }
 
-      // For pagination or immediate searches, execute directly
-      executeSearch(coordinates, page, isLoadMore, currentSearchId);
-    },
-    [searchId]
-  );
+      // Add to loaded pages set
+      loadedPagesRef.current.add(page);
 
-  // Separate function to execute the actual search API call
-  const executeSearch = useCallback(
-    async (
-      coordinates: number[],
-      page: number,
-      isLoadMore: boolean,
-      currentSearchId: string
-    ) => {
-      // Clear the timeout ref
-      searchTimeoutRef.current = null;
+      // Capture the current search ID at the time the request is made
+      const currentSearchId = searchId;
+      currentSearchIdRef.current = currentSearchId;
 
-      console.log(
-        `Executing search page ${page} (isLoadMore: ${isLoadMore}) with searchId: ${currentSearchId}`
+      // Create abort controller for this request
+      const controller = new AbortController();
+      abortControllersRef.current.set(
+        `${currentSearchId}_page${page}`,
+        controller
       );
 
-      if (!isLoadMore && page === 1) {
+      console.log(
+        `Fetching properties page ${page} with searchId: ${currentSearchId}`
+      );
+
+      if (page === 1) {
         setIsLoadingProperties(true);
       } else {
         setLoadingMore(true);
       }
-
       setUsingSampleData(false);
 
       try {
-        // Apply progressive simplification to reduce polygon size for large polygons
-        const simplifiedCoords = coordinates;
-        if (coordinates.length > 100) {
-          // Implementation of a simplification algorithm to reduce points
-          // This is just a placeholder - you might use something like simplifyPolygon
-          console.log(
-            `Simplifying polygon with ${
-              coordinates.length / 2
-            } points for better performance`
-          );
-        }
-
         const response = await fetch("/api/properties/search", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
           },
           body: JSON.stringify({
-            coordinates: simplifiedCoords,
+            coordinates,
             query: "*", // Default query to match all documents
             page,
             per_page: PAGE_SIZE,
             searchId: currentSearchId, // Include search ID with request
           }),
-          // Add cache control headers to prevent caching
           cache: "no-store",
+          signal: controller.signal,
+          next: { revalidate: 0 }, // NextJS-specific: don't cache this request
         });
+
+        // Clean up the controller
+        abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
 
         if (!response.ok) {
           throw new Error(`API responded with status: ${response.status}`);
@@ -586,48 +594,46 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               // First page - replace existing properties
               setProperties(data.properties);
             } else {
-              // Subsequent pages - append to existing properties while avoiding duplicates
+              // Subsequent pages - append to existing properties
               setProperties((prevProperties) => {
                 // Create a set of existing IDs to avoid duplicates
                 const existingIds = new Set(
-                  prevProperties.map((p: PropertyDocument) => p.id)
+                  prevProperties.map((p) => p.id || p.document_id)
                 );
-                // Filter out any properties that already exist
+
+                // Add only unique properties
                 const newProperties = data.properties.filter(
-                  (p: PropertyDocument) => !existingIds.has(p.id)
+                  (p) => !existingIds.has(p.id || p.document_id)
                 );
 
                 return [...prevProperties, ...newProperties];
               });
             }
 
-            // Update total count and pagination state
+            // Update total count
             setTotalHits(data.count || 0);
-            setCurrentPage(page);
 
             // Check if there are more results to load
-            const totalFetched =
-              (page - 1) * PAGE_SIZE + data.properties.length;
+            const totalFetched = page * PAGE_SIZE;
             const hasMore = totalFetched < (data.count || 0);
             setHasMoreResults(hasMore);
+            setCurrentPage(page);
 
             setUsingSampleData(!!data.usingSampleData);
             console.log(
-              `Found ${
-                data.count || 0
-              } properties (loaded ${totalFetched} so far), has more: ${
-                hasMore ? "yes" : "no"
-              }`
+              `Found ${data.count || 0} properties in polygon, loaded ${
+                page * PAGE_SIZE > data.count ? data.count : page * PAGE_SIZE
+              } (${
+                data.points || coordinates.length / 2
+              } points) for searchId: ${currentSearchId}`
             );
 
-            // Check if we should immediately load the next page
-            if (hasMore && autoLoadEnabled && !isLoadMore) {
-              console.log("Auto-loading next page...");
-
-              // Wait a moment before loading next page to avoid overwhelming the server
+            // Auto-load next page if there are more results
+            if (hasMore && isAutoLoading) {
+              // Use a slight delay to avoid overwhelming the server
               setTimeout(() => {
                 if (currentSearchId === searchId) {
-                  executeSearch(coordinates, page + 1, true, currentSearchId);
+                  fetchProperties(coordinates, page + 1);
                 }
               }, 800);
             }
@@ -641,26 +647,30 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
               `No properties found in polygon for searchId: ${currentSearchId}`
             );
           }
-
-          // Always mark initial load as complete
-          setIsInitialLoad(false);
         } else {
           console.log(
             `Ignoring stale search results for searchId: ${currentSearchId}, current is: ${searchId}`
           );
         }
       } catch (error) {
-        console.error(
-          `Error fetching properties for searchId ${currentSearchId}:`,
-          error
-        );
-        if (currentSearchId === searchId && page === 1) {
-          handleFetchError(coordinates);
+        // Don't report errors for aborted requests
+        if (error.name !== "AbortError") {
+          console.error(
+            `Error fetching properties for searchId ${currentSearchId}:`,
+            error
+          );
+
+          if (currentSearchId === searchId && page === 1) {
+            handleFetchError(coordinates);
+          }
         }
       } finally {
+        // Clean up the controller if it wasn't already removed
+        abortControllersRef.current.delete(`${currentSearchId}_page${page}`);
+
         // Only update loading state if this search is still current
         if (currentSearchId === searchId) {
-          if (page === 1 && !isLoadMore) {
+          if (page === 1) {
             setIsLoadingProperties(false);
           } else {
             setLoadingMore(false);
@@ -668,14 +678,14 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         }
       }
     },
-    [handleFetchError, searchId, autoLoadEnabled]
+    [handleFetchError, searchId, isAutoLoading]
   );
 
-  // Function to load more properties
+  // Function to load more properties (manual trigger if auto-loading is disabled)
   const loadMoreProperties = useCallback(() => {
     if (hasMoreResults && !loadingMore && polygonCoordinates) {
       const nextPage = currentPage + 1;
-      fetchProperties(polygonCoordinates, nextPage, true);
+      fetchProperties(polygonCoordinates, nextPage);
     }
   }, [
     hasMoreResults,
@@ -703,7 +713,6 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     currentSearchIdRef.current = newSearchId;
 
     // Reset pagination state when location changes
-    setIsInitialLoad(true);
     setCurrentPage(1);
     setProperties([]);
     setTotalHits(0);
@@ -1057,8 +1066,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       </MapContainer>
 
       {/* Status indicator with enhanced UI for auto-loading */}
-      <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-3 z-[1000] text-sm">
-        {isLoadingProperties && !loadingMore ? (
+      <div className="absolute bottom-2 right-2 bg-white rounded-md shadow-md p-2 z-[1000] text-sm">
+        {isLoadingProperties ? (
           <p className="flex items-center">
             <span className="inline-block w-3 h-3 mr-1 rounded-full bg-blue-500 animate-pulse" />
             Loading properties...
@@ -1073,47 +1082,22 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
                 <span className="text-yellow-600 ml-1">(Sample data)</span>
               )}
             </p>
-
-            {hasMoreResults && (
-              <div className="flex flex-col mt-2 gap-2">
-                <label className="flex items-center text-xs">
-                  <input
-                    type="checkbox"
-                    checked={autoLoadEnabled}
-                    onChange={() => setAutoLoadEnabled(!autoLoadEnabled)}
-                    className="mr-1.5"
-                  />
-                  Auto-load pages
-                </label>
-
-                <button
-                  type="button"
-                  onClick={loadMoreProperties}
-                  disabled={loadingMore || autoLoadEnabled}
-                  className={`text-xs px-3 py-1.5 rounded ${
-                    loadingMore
-                      ? "bg-gray-300 text-gray-700"
-                      : autoLoadEnabled
-                      ? "bg-gray-200 text-gray-600"
-                      : "bg-blue-500 hover:bg-blue-600 text-white"
-                  } transition-colors w-full`}
-                >
-                  {loadingMore ? (
-                    <span className="flex items-center justify-center">
-                      <span className="inline-block w-2 h-2 mr-1 rounded-full bg-white animate-pulse" />
-                      Loading page {currentPage + 1}...
-                    </span>
-                  ) : autoLoadEnabled ? (
-                    "Auto-loading enabled"
-                  ) : (
-                    `Load more (${totalHits - properties.length} remaining)`
-                  )}
-                </button>
-              </div>
+            {hasMoreResults && loadingMore && (
+              <p className="mt-1 text-xs flex items-center">
+                <span className="inline-block w-2 h-2 mr-1 rounded-full bg-blue-500 animate-pulse" />
+                Loading more properties...
+              </p>
+            )}
+            {hasMoreResults && !loadingMore && !isAutoLoading && (
+              <button
+                type="button"
+                onClick={loadMoreProperties}
+                className="mt-1 text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded w-full"
+              >
+                Load more ({totalHits - properties.length} remaining)
+              </button>
             )}
           </div>
-        ) : isInitialLoad ? (
-          <p>Searching properties...</p>
         ) : polygonCoordinates ? (
           <p>No properties found in this area</p>
         ) : (

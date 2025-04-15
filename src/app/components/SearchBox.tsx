@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useSearchBox, useHits } from "react-instantsearch";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useSearchBox, useHits, useInstantSearch } from "react-instantsearch";
 import { MagnifyingGlassIcon, MapPinIcon } from "@heroicons/react/24/outline";
 import type { LocationDocument } from "@/app/types/typesense";
 
@@ -16,6 +16,7 @@ export default function SearchBox({
 }: SearchBoxProps) {
   const { query, refine } = useSearchBox();
   const { hits } = useHits() as { hits: LocationDocument[] };
+  const { refresh } = useInstantSearch();
   const [inputValue, setInputValue] = useState(query);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [randomCounts, setRandomCounts] = useState<Record<string, number>>({});
@@ -25,6 +26,14 @@ export default function SearchBox({
   const listboxRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+
+  // Track the last query to prevent duplicate searches
+  const lastQueryRef = useRef<string>("");
+
+  // Generate a unique search identifier on component mount
+  const searchIdRef = useRef<string>(
+    `search_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  );
 
   // Generate random counts for locations after component mounts
   useEffect(() => {
@@ -62,12 +71,30 @@ export default function SearchBox({
     setInputValue(query);
   }, [query]);
 
+  // Reset search state completely when needed
+  const resetSearch = useCallback(() => {
+    // Clear UI state
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+
+    // Force instantsearch to refresh with a new search ID
+    searchIdRef.current = `search_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
+    refresh();
+  }, [refresh]);
+
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
     setInputValue(value);
-    refine(value);
-    setShowSuggestions(value.length > 0);
-    setActiveIndex(-1);
+
+    // Only trigger a new search if the query has actually changed
+    if (value !== lastQueryRef.current) {
+      lastQueryRef.current = value;
+      refine(value);
+      setShowSuggestions(value.length > 0);
+      setActiveIndex(-1);
+    }
   };
 
   const handleFocus = () => {
@@ -81,6 +108,11 @@ export default function SearchBox({
     setInputValue(displayName);
     setShowSuggestions(false);
     setActiveIndex(-1);
+
+    // Reset search state to ensure fresh results for next search
+    resetSearch();
+
+    // Notify parent component
     onLocationSelect(location);
   };
 
@@ -148,31 +180,35 @@ export default function SearchBox({
     if (location.level === 0) {
       typeDescription = "Country";
       return typeDescription;
-    } 
-    
+    }
+
     if (location.level === 1) {
       typeDescription = location.type_1 || "District";
       return `${typeDescription} in ${location.country}`;
-    } 
-    
+    }
+
     if (location.level === 2) {
       typeDescription = location.type_2 || "Municipality";
       if (location.name_1) {
         return `${typeDescription} in ${location.name_1}`;
       }
-    } 
-    
+    }
+
     if (location.level === 3) {
       typeDescription = location.type_3 || "Parish";
       if (location.name_2) {
-        return `${typeDescription} in ${location.name_2}${location.name_1 ? `, ${location.name_1}` : ''}`;
+        return `${typeDescription} in ${location.name_2}${
+          location.name_1 ? `, ${location.name_1}` : ""
+        }`;
       }
-    } 
-    
+    }
+
     if (location.level === 4) {
       typeDescription = location.type_4 || "Neighborhood";
       if (location.name_3) {
-        return `${typeDescription} in ${location.name_3}${location.name_2 ? `, ${location.name_2}` : ''}`;
+        return `${typeDescription} in ${location.name_3}${
+          location.name_2 ? `, ${location.name_2}` : ""
+        }`;
       }
     }
 

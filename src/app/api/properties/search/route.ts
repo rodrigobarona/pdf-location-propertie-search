@@ -18,6 +18,17 @@ interface SearchResponse {
   found?: number;
 }
 
+// Define a type for the cache data
+interface CacheData {
+  properties: Record<string, unknown>[];
+  count: number;
+  searchType?: string;
+  points?: number;
+  page?: number;
+  per_page?: number;
+  usingSampleData?: boolean;
+}
+
 export async function POST(request: Request) {
   try {
     // Parse request body
@@ -50,15 +61,25 @@ export async function POST(request: Request) {
       console.log(`Processing search request with ID: ${searchId}`);
     }
 
+    // Set response headers to prevent caching
+    const responseHeaders = {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      Pragma: "no-cache",
+      Expires: "0",
+    };
+
     // Return sample data if explicitly requested
     if (useSampleData) {
       console.log("Using sample data as requested");
-      return NextResponse.json({
-        properties: sampleProperties,
-        count: sampleProperties.length,
-        usingSampleData: true,
-        searchId,
-      });
+      return NextResponse.json(
+        {
+          properties: sampleProperties,
+          count: sampleProperties.length,
+          usingSampleData: true,
+          searchId,
+        },
+        { headers: responseHeaders }
+      );
     }
 
     // First try to list collections to verify connectivity
@@ -72,9 +93,19 @@ export async function POST(request: Request) {
           properties: sampleProperties,
           usingSampleData: true,
         },
-        { status: 500 }
+        { status: 500, headers: responseHeaders }
       );
     }
+
+    // Common Typesense parameters for all searches to ensure fresh results
+    const commonSearchParams = {
+      // Add unique cache-busting parameter for each request
+      cache_busting_id: searchId || `cb_${Date.now()}`,
+      // Typesense v28 parameters for performance
+      prioritize_exact_match: true,
+      exhaustive_search: true,
+      search_cutoff_ms: 3000, // 3 seconds max search time
+    };
 
     // Simple text search when no geometry is provided
     if (!coordinates && !coordinates_json) {
@@ -85,6 +116,7 @@ export async function POST(request: Request) {
           per_page: 20, // Lower for normal text search to avoid overwhelming the UI
           sort_by: "_text_match:desc", // Sort by text relevance
           highlight_full_fields: "title,address,description", // Highlight matched terms
+          ...commonSearchParams,
         };
 
         console.log("Performing text search with query:", query || "*");
@@ -98,12 +130,14 @@ export async function POST(request: Request) {
           `Found ${searchResults.hits?.length || 0} properties matching query`
         );
 
-        return NextResponse.json({
+        const responseData = {
           properties: searchResults.hits?.map((hit) => hit.document) || [],
           count: searchResults.hits?.length || 0,
           searchType: "text",
           searchId,
-        });
+        };
+
+        return NextResponse.json(responseData, { headers: responseHeaders });
       } catch (error) {
         console.error("Error performing text search:", error);
         return NextResponse.json(
@@ -114,7 +148,7 @@ export async function POST(request: Request) {
             usingSampleData: true,
             searchId,
           },
-          { status: 500 }
+          { status: 500, headers: responseHeaders }
         );
       }
     }
@@ -151,6 +185,7 @@ export async function POST(request: Request) {
             sort_by: `_geoloc(${lat}, ${lng}):asc`, // Sort by distance from center
             per_page: per_page,
             page: page,
+            ...commonSearchParams,
           };
 
           const searchResults = (await typesenseClient
@@ -166,14 +201,16 @@ export async function POST(request: Request) {
             } properties`
           );
 
-          return NextResponse.json({
+          const responseData = {
             properties: searchResults.hits?.map((hit) => hit.document) || [],
             count: searchResults.found || 0,
             searchType: "radius",
             page: page,
             per_page: per_page,
             searchId,
-          });
+          };
+
+          return NextResponse.json(responseData, { headers: responseHeaders });
         }
       } catch (error) {
         console.error("Error parsing point coordinates:", error);
@@ -183,7 +220,7 @@ export async function POST(request: Request) {
             details: error instanceof Error ? error.message : String(error),
             searchId,
           },
-          { status: 400 }
+          { status: 400, headers: responseHeaders }
         );
       }
     }
@@ -308,7 +345,7 @@ export async function POST(request: Request) {
             error: "Failed to parse coordinates_json",
             details: error instanceof Error ? error.message : String(error),
           },
-          { status: 400 }
+          { status: 400, headers: responseHeaders }
         );
       }
     }
@@ -334,7 +371,7 @@ export async function POST(request: Request) {
             "Format should be [lat1, lng1, lat2, lng2, ...] or a valid coordinates_json field",
           searchId,
         },
-        { status: 400 }
+        { status: 400, headers: responseHeaders }
       );
     }
 
@@ -360,15 +397,18 @@ export async function POST(request: Request) {
 
       // Return sample data instead of error for better user experience
       console.log("Returning sample data for oversized polygon query");
-      return NextResponse.json({
-        properties: sampleProperties.slice(0, 20), // Return limited sample data
-        count: sampleProperties.length,
-        searchType: "polygon",
-        points: searchCoordinates.length / 2,
-        filterLength: polygonFilterString.length,
-        usingSampleData: true,
-        searchId,
-      });
+      return NextResponse.json(
+        {
+          properties: sampleProperties.slice(0, 20), // Return limited sample data
+          count: sampleProperties.length,
+          searchType: "polygon",
+          points: searchCoordinates.length / 2,
+          filterLength: polygonFilterString.length,
+          usingSampleData: true,
+          searchId,
+        },
+        { headers: responseHeaders }
+      );
     }
 
     // Perform a direct polygon search with pagination
@@ -378,6 +418,7 @@ export async function POST(request: Request) {
       filter_by: polygonFilterString,
       per_page: per_page,
       page: page,
+      ...commonSearchParams,
     };
 
     console.log("Typesense search parameters:", {
@@ -403,7 +444,7 @@ export async function POST(request: Request) {
         } properties`
       );
 
-      return NextResponse.json({
+      const responseData = {
         properties: searchResults.hits?.map((hit) => hit.document) || [],
         count: searchResults.found || 0,
         searchType: "polygon",
@@ -411,7 +452,9 @@ export async function POST(request: Request) {
         page: page,
         per_page: per_page,
         searchId,
-      });
+      };
+
+      return NextResponse.json(responseData, { headers: responseHeaders });
     } catch (error) {
       console.error("Error searching properties in polygon:", error);
 
@@ -424,7 +467,7 @@ export async function POST(request: Request) {
           usingSampleData: true,
           searchId,
         },
-        { status: 500 }
+        { status: 500, headers: responseHeaders }
       );
     }
   } catch (error) {
@@ -434,7 +477,14 @@ export async function POST(request: Request) {
         error: "Error processing request",
         details: error instanceof Error ? error.message : String(error),
       },
-      { status: 400 }
+      {
+        status: 400,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
     );
   }
 }
