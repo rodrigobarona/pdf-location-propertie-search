@@ -360,86 +360,198 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     }
   }, [locationResult, geoJsonData]);
 
-  // Fetch properties inside polygon when coordinates change
+  // Fetch properties inside polygon when coordinates change or when a point location is selected
   useEffect(() => {
-    if (!polygonCoordinates || polygonCoordinates.length < 6) {
-      // Need at least 3 points (6 numbers) to form a polygon
-      setProperties([]);
+    // For polygon search: check if we have valid polygon coordinates
+    if (polygonCoordinates && polygonCoordinates.length >= 6) {
+      fetchProperties(polygonCoordinates);
       return;
     }
 
-    const fetchProperties = async () => {
-      const isMounted = true; // Flag to track component mount state
-      setIsLoadingProperties(true);
-      setUsingSampleData(false);
+    // For point search: check if we have a point location
+    if (isPointLocation && pointCenter && pointRadius) {
+      fetchPointProperties(pointCenter, pointRadius);
+      return;
+    }
 
-      try {
-        const response = await fetch("/api/properties/search-in-polygon", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ coordinates: polygonCoordinates }),
-        });
+    // Clear properties if no valid search parameters
+    setProperties([]);
+  }, [polygonCoordinates, isPointLocation, pointCenter, pointRadius]);
 
-        if (!response.ok) {
-          throw new Error(`API responded with status: ${response.status}`);
-        }
+  // Function to fetch properties within a polygon
+  const fetchProperties = async (coordinates: number[]) => {
+    const isMounted = true; // Flag to track component mount state
+    setIsLoadingProperties(true);
+    setUsingSampleData(false);
 
-        const data = await response.json();
+    try {
+      const response = await fetch("/api/properties/search-in-polygon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ coordinates }),
+      });
 
-        // Only update state if component is still mounted
-        if (isMounted) {
-          if (data.properties && Array.isArray(data.properties)) {
-            setProperties(data.properties);
-            setUsingSampleData(!!data.usingSampleData);
-          } else {
-            setProperties([]);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching properties inside polygon:", error);
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
 
-        // Use sample data if fetch fails, but only if component is still mounted
-        if (isMounted) {
-          // Fetch sample data from the API
-          try {
-            const sampleResponse = await fetch(
-              "/api/properties/search-in-polygon",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  coordinates: polygonCoordinates,
-                  useSampleData: true,
-                }),
-              }
-            );
+      const data = await response.json();
 
-            if (sampleResponse.ok) {
-              const sampleData = await sampleResponse.json();
-              setProperties(sampleData.properties || []);
-            } else {
-              setProperties([]);
-            }
-            setUsingSampleData(true);
-          } catch (sampleError) {
-            console.error("Error fetching sample data:", sampleError);
-            setProperties([]);
-            setUsingSampleData(false);
-          }
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingProperties(false);
+      // Only update state if component is still mounted
+      if (isMounted) {
+        if (data.properties && Array.isArray(data.properties)) {
+          setProperties(data.properties);
+          setUsingSampleData(!!data.usingSampleData);
+        } else {
+          setProperties([]);
         }
       }
-    };
+    } catch (error) {
+      console.error("Error fetching properties inside polygon:", error);
+      handleFetchError(coordinates);
+    } finally {
+      if (isMounted) {
+        setIsLoadingProperties(false);
+      }
+    }
+  };
 
-    fetchProperties();
-  }, [polygonCoordinates]);
+  // Function to fetch properties within a radius around a point
+  const fetchPointProperties = async (
+    center: [number, number],
+    radius: number
+  ) => {
+    const isMounted = true; // Flag to track component mount state
+    setIsLoadingProperties(true);
+    setUsingSampleData(false);
+
+    try {
+      // If we have the original coordinates_json, use it directly
+      const requestBody: {
+        coordinates_json: string;
+        geometry_type: string;
+        radius: number;
+        useSampleData?: boolean;
+      } = {
+        coordinates_json: "",
+        geometry_type: "Point",
+        radius,
+      };
+
+      if (
+        locationResult?.coordinates_json &&
+        locationResult.geometry_type === "Point"
+      ) {
+        requestBody.coordinates_json = locationResult.coordinates_json;
+      } else {
+        // Fallback: construct a GeoJSON point if we don't have the original
+        const [lat, lng] = center;
+        requestBody.coordinates_json = JSON.stringify({
+          type: "Point",
+          coordinates: [lng, lat], // GeoJSON uses [lng, lat] format
+        });
+      }
+
+      console.log("Fetching properties around point:", requestBody);
+
+      const response = await fetch("/api/properties/search-in-polygon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Only update state if component is still mounted
+      if (isMounted) {
+        if (data.properties && Array.isArray(data.properties)) {
+          setProperties(data.properties);
+          setUsingSampleData(!!data.usingSampleData);
+        } else {
+          setProperties([]);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching properties around point:", error);
+
+      // Try to fetch sample data on error
+      try {
+        const [lat, lng] = center;
+
+        const sampleResponse = await fetch(
+          "/api/properties/search-in-polygon",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              coordinates_json: JSON.stringify({
+                type: "Point",
+                coordinates: [lng, lat],
+              }),
+              geometry_type: "Point",
+              radius,
+              useSampleData: true,
+            }),
+          }
+        );
+
+        if (sampleResponse.ok) {
+          const sampleData = await sampleResponse.json();
+          setProperties(sampleData.properties || []);
+        } else {
+          setProperties([]);
+        }
+        setUsingSampleData(true);
+      } catch (error) {
+        console.error("Error fetching sample data for point:", error);
+        setProperties([]);
+        setUsingSampleData(false);
+      }
+    } finally {
+      if (isMounted) {
+        setIsLoadingProperties(false);
+      }
+    }
+  };
+
+  // Helper function to handle fetch errors
+  const handleFetchError = async (coordinates: number[]) => {
+    // Use sample data if fetch fails, but only if component is still mounted
+    try {
+      const sampleResponse = await fetch("/api/properties/search-in-polygon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          coordinates,
+          useSampleData: true,
+        }),
+      });
+
+      if (sampleResponse.ok) {
+        const sampleData = await sampleResponse.json();
+        setProperties(sampleData.properties || []);
+      } else {
+        setProperties([]);
+      }
+      setUsingSampleData(true);
+    } catch (sampleError) {
+      console.error("Error fetching sample data:", sampleError);
+      setProperties([]);
+      setUsingSampleData(false);
+    }
+  };
 
   useEffect(() => {
     if (!locationResult) {

@@ -21,10 +21,18 @@ export async function POST(request: Request) {
     const body: {
       coordinates?: number[];
       coordinates_json?: string;
+      geometry_type?: string;
+      radius?: number;
       useSampleData?: boolean;
     } = await request.json();
 
-    const { coordinates, coordinates_json, useSampleData } = body;
+    const {
+      coordinates,
+      coordinates_json,
+      geometry_type,
+      radius,
+      useSampleData,
+    } = body;
 
     // Return sample data if explicitly requested
     if (useSampleData) {
@@ -35,7 +43,84 @@ export async function POST(request: Request) {
       });
     }
 
-    // Prepare coordinates for search
+    // First try to list collections to verify connectivity
+    try {
+      await typesenseClient.collections().retrieve();
+    } catch (error) {
+      console.error("Error connecting to Typesense:", error);
+      return NextResponse.json(
+        {
+          error: "Error connecting to Typesense",
+          properties: sampleProperties,
+          usingSampleData: true,
+        },
+        { status: 500 }
+      );
+    }
+
+    // Handle Point-Radius search (for level 4 locations)
+    if (geometry_type === "Point" && coordinates_json) {
+      try {
+        const pointData = JSON.parse(coordinates_json);
+
+        if (
+          pointData.type === "Point" &&
+          Array.isArray(pointData.coordinates) &&
+          pointData.coordinates.length === 2
+        ) {
+          // Extract coordinates (GeoJSON format is [lng, lat], we need [lat, lng])
+          const [lng, lat] = pointData.coordinates;
+          const searchRadius = radius || 3000; // Default to 3000m if not specified
+
+          // Convert radius to km for Typesense
+          const radiusKm = searchRadius / 1000;
+
+          // Create filter for radius search
+          const radiusFilterString = `_geoloc:(${lat}, ${lng}, ${radiusKm} km)`;
+
+          console.log(
+            `Performing radius search at [${lat}, ${lng}] with radius ${radiusKm} km`
+          );
+
+          // Perform a radius search
+          const searchParameters = {
+            q: "*",
+            query_by: "title,address,description",
+            filter_by: radiusFilterString,
+            sort_by: `_geoloc(${lat}, ${lng}):asc`, // Sort by distance from center
+            per_page: 250,
+          };
+
+          console.log("Typesense search parameters:", searchParameters);
+
+          const searchResults = (await typesenseClient
+            .collections("properties")
+            .documents()
+            .search(searchParameters)) as SearchResponse;
+
+          console.log(
+            `Found ${searchResults.hits?.length || 0} properties within radius`
+          );
+
+          return NextResponse.json({
+            properties: searchResults.hits?.map((hit) => hit.document) || [],
+            count: searchResults.hits?.length || 0,
+            searchType: "radius",
+          });
+        }
+      } catch (error) {
+        console.error("Error parsing point coordinates:", error);
+        return NextResponse.json(
+          {
+            error: "Failed to parse point coordinates",
+            details: error instanceof Error ? error.message : String(error),
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Prepare coordinates for polygon search
     let searchCoordinates: number[] = [];
 
     // Option 1: Using raw coordinates already in [lat, lng] format
@@ -115,21 +200,6 @@ export async function POST(request: Request) {
         searchCoordinates.push(searchCoordinates[0], searchCoordinates[1]);
       }
 
-      // First try to list collections to verify connectivity
-      try {
-        await typesenseClient.collections().retrieve();
-      } catch (error) {
-        console.error("Error connecting to Typesense:", error);
-        return NextResponse.json(
-          {
-            error: "Error connecting to Typesense",
-            properties: sampleProperties,
-            usingSampleData: true,
-          },
-          { status: 500 }
-        );
-      }
-
       // Create the filter string for polygon search
       // Typesense requires the format: _geoloc:(lat1, lng1, lat2, lng2, ...)
       const polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
@@ -156,6 +226,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         properties: searchResults.hits?.map((hit) => hit.document) || [],
         count: searchResults.hits?.length || 0,
+        searchType: "polygon",
       });
     } catch (error) {
       console.error("Error searching properties in polygon:", error);
