@@ -695,29 +695,24 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         />
 
         {isPointLocation && pointCenter && pointRadius && (
-          <>
-            <Circle
-              center={pointCenter}
-              radius={pointRadius}
-              pathOptions={{
-                color: "#d4277b",
-                weight: 2,
-                opacity: 0.8,
-                fillColor: "rgba(212, 39, 123, 0.2)",
-                fillOpacity: 0.35,
-              }}
-            />
-            <Marker position={pointCenter}>
-              <Popup>
-                <div>
-                  <h3 className="font-semibold">{pointName}</h3>
-                  <p className="text-sm text-gray-600">
-                    Radius: {pointRadius}m
-                  </p>
-                </div>
-              </Popup>
-            </Marker>
-          </>
+          <Circle
+            center={pointCenter}
+            radius={pointRadius}
+            pathOptions={{
+              color: "#d4277b",
+              weight: 2,
+              opacity: 0.8,
+              fillColor: "rgba(212, 39, 123, 0.2)",
+              fillOpacity: 0.35,
+            }}
+          >
+            <Popup>
+              <div>
+                <h3 className="font-semibold">{pointName}</h3>
+                <p className="text-sm text-gray-600">Radius: {pointRadius}m</p>
+              </div>
+            </Popup>
+          </Circle>
         )}
 
         {!isPointLocation && geoJsonData && (
