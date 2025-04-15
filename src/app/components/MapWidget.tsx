@@ -48,58 +48,47 @@ interface GeoJSONFeature {
   geometry: GeoJSONGeometry;
 }
 
-// Helper function to create a valid GeoJSON object
+// Helper function to create a valid GeoJSON object from coordinates
 function createValidGeoJSON(
-  coordinates: unknown,
-  geometryType = "Polygon"
-): GeoJSONGeometry {
-  // If it's already a valid GeoJSON with type property, return it
-  if (coordinates && typeof coordinates === "object" && "type" in coordinates) {
-    return coordinates as GeoJSONGeometry;
-  }
-
-  // Check if coordinates is an array
-  if (!Array.isArray(coordinates)) {
-    console.error("Invalid coordinates format:", coordinates);
-    // Return a simple polygon as fallback
+  coordinates: number[][][] | number[][][][] | unknown,
+  geometryType: string
+): GeoJSON.FeatureCollection {
+  if (geometryType === "Polygon") {
     return {
-      type: "Polygon",
-      coordinates: [
-        [
-          [-8.5, 39.0],
-          [-8.5, 40.0],
-          [-7.5, 40.0],
-          [-7.5, 39.0],
-          [-8.5, 39.0],
-        ],
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: coordinates as number[][][],
+          },
+        },
       ],
     };
   }
 
-  // Determine the geometry type based on the structure of coordinates
-  let type = (geometryType as GeoJSONGeometry["type"]) || "Polygon";
-
-  // If no explicit type is provided, try to infer it from the coordinates structure
-  if (!geometryType) {
-    if (Array.isArray(coordinates[0]) && !Array.isArray(coordinates[0][0])) {
-      // [[x,y], [x,y], ...] -> LineString
-      type = "LineString";
-    } else if (
-      Array.isArray(coordinates[0]) &&
-      Array.isArray(coordinates[0][0])
-    ) {
-      // [[[x,y], [x,y], ...]] -> Polygon
-      type = "Polygon";
-    } else if (!Array.isArray(coordinates[0])) {
-      // [x,y] -> Point
-      type = "Point";
-    }
+  if (geometryType === "MultiPolygon") {
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "MultiPolygon",
+            coordinates: coordinates as number[][][][],
+          },
+        },
+      ],
+    };
   }
 
-  // Create and return a proper GeoJSON geometry object
+  console.error("Unsupported geometry type:", geometryType);
   return {
-    type: type,
-    coordinates: coordinates,
+    type: "FeatureCollection",
+    features: [],
   };
 }
 
@@ -123,7 +112,7 @@ function extractPolygonCoordinates(
       ) {
         // Extract all coordinates without simplification
         // Convert from [lng, lat] format to [lat, lng] for Typesense search
-        const outerRing = geoJsonData.geometry.coordinates[0];
+        const outerRing = geoJsonData.geometry.coordinates[0] as number[][];
         for (const coord of outerRing) {
           if (Array.isArray(coord) && coord.length >= 2) {
             // Ensure we're working with numbers
@@ -134,22 +123,50 @@ function extractPolygonCoordinates(
         }
       }
     } else if (geometryType === "MultiPolygon") {
-      // For MultiPolygon, take the first polygon's outer ring
-      if (
-        Array.isArray(geoJsonData.geometry.coordinates) &&
-        geoJsonData.geometry.coordinates.length > 0 &&
-        Array.isArray(geoJsonData.geometry.coordinates[0]) &&
-        geoJsonData.geometry.coordinates[0].length > 0 &&
-        Array.isArray(geoJsonData.geometry.coordinates[0][0])
-      ) {
-        // Extract all coordinates without simplification
-        const outerRing = geoJsonData.geometry.coordinates[0][0];
-        for (const coord of outerRing) {
-          if (Array.isArray(coord) && coord.length >= 2) {
-            // Ensure we're working with numbers
-            const lng = Number(coord[0]);
-            const lat = Number(coord[1]);
-            coordinates.push(lat, lng); // Push lat, lng for Typesense
+      // For MultiPolygon, find the largest polygon's outer ring
+      const multiPolygonCoords = geoJsonData.geometry
+        .coordinates as number[][][][];
+      if (Array.isArray(multiPolygonCoords)) {
+        let largestPolygonIndex = 0;
+        let maxPointCount = 0;
+
+        // Find the polygon with the most points (likely the main boundary)
+        for (let i = 0; i < multiPolygonCoords.length; i++) {
+          if (
+            Array.isArray(multiPolygonCoords[i]) &&
+            multiPolygonCoords[i].length > 0 &&
+            Array.isArray(multiPolygonCoords[i][0])
+          ) {
+            const pointCount = multiPolygonCoords[i][0].length;
+            console.log(`GeoJSON Polygon ${i} has ${pointCount} points`);
+
+            if (pointCount > maxPointCount) {
+              maxPointCount = pointCount;
+              largestPolygonIndex = i;
+            }
+          }
+        }
+
+        console.log(
+          `Using largest GeoJSON polygon at index ${largestPolygonIndex} with ${maxPointCount} points`
+        );
+
+        // Extract coordinates from the largest polygon's outer ring
+        if (
+          Array.isArray(multiPolygonCoords[largestPolygonIndex]) &&
+          multiPolygonCoords[largestPolygonIndex].length > 0 &&
+          Array.isArray(multiPolygonCoords[largestPolygonIndex][0])
+        ) {
+          const outerRing = multiPolygonCoords[
+            largestPolygonIndex
+          ][0] as number[][];
+          for (const coord of outerRing) {
+            if (Array.isArray(coord) && coord.length >= 2) {
+              // Ensure we're working with numbers
+              const lng = Number(coord[0]);
+              const lat = Number(coord[1]);
+              coordinates.push(lat, lng); // Push lat, lng for Typesense
+            }
           }
         }
       }
@@ -168,19 +185,47 @@ function extractPolygonCoordinates(
     }
 
     // Ensure polygon is closed (first point equals last point)
-    if (
-      coordinates[0] !== coordinates[coordinates.length - 2] ||
-      coordinates[1] !== coordinates[coordinates.length - 1]
-    ) {
+    const isClosed =
+      coordinates[0] === coordinates[coordinates.length - 2] &&
+      coordinates[1] === coordinates[coordinates.length - 1];
+
+    if (!isClosed) {
+      console.warn(
+        "Raw polygon is not closed. Adding first point to close the polygon."
+      );
       coordinates.push(coordinates[0], coordinates[1]);
+    } else {
+      console.log(
+        `Polygon already closed with ${coordinates.length / 2} points`
+      );
     }
 
-    console.log(`Extracted ${coordinates.length / 2} points from polygon`);
     return coordinates;
   } catch (error) {
     console.error("Error extracting polygon coordinates:", error);
     return null;
   }
+}
+
+// Helper function to find the polygon with the most points
+function findLargestPolygon(polygons: number[][][]): number[][][] {
+  if (!Array.isArray(polygons) || polygons.length === 0) {
+    return [];
+  }
+
+  // Find the polygon with the most points (coordinates)
+  let largestPolygon = polygons[0];
+  let maxPoints = polygons[0].length;
+
+  for (let i = 1; i < polygons.length; i++) {
+    if (polygons[i].length > maxPoints) {
+      largestPolygon = polygons[i];
+      maxPoints = polygons[i].length;
+    }
+  }
+
+  // Return the largest polygon as a single polygon structure
+  return [largestPolygon];
 }
 
 // Component to update the map view when location changes
@@ -231,11 +276,31 @@ function MapUpdater({ location }: { location: LocationDocument | null }) {
         // Log the parsed coordinates for debugging
         console.log("Parsed coordinates:", parsedCoordinates);
 
-        // Create a valid GeoJSON object for bounds calculation
-        const validGeoJson = createValidGeoJSON(
-          parsedCoordinates,
-          location.geometry_type
-        );
+        // For MultiPolygon, find the largest polygon
+        let validGeoJson: GeoJSON.FeatureCollection;
+        if (
+          location.geometry_type === "MultiPolygon" &&
+          Array.isArray(parsedCoordinates)
+        ) {
+          // Handle MultiPolygon coordinates with appropriate typing
+          const multiPolygonCoords = parsedCoordinates as number[][][][];
+          // Find the largest polygon (if possible)
+          const largestPolygon = findLargestPolygon(multiPolygonCoords[0]);
+          if (largestPolygon) {
+            console.log("Using largest polygon for map bounds");
+            validGeoJson = createValidGeoJSON(largestPolygon, "Polygon");
+          } else {
+            validGeoJson = createValidGeoJSON(
+              multiPolygonCoords[0],
+              location.geometry_type
+            );
+          }
+        } else {
+          validGeoJson = createValidGeoJSON(
+            parsedCoordinates,
+            location.geometry_type
+          );
+        }
 
         console.log("Valid GeoJSON:", validGeoJson);
 
@@ -309,15 +374,40 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         // Parse the coordinates_json field
         const parsedCoordinates = JSON.parse(locationResult.coordinates_json);
 
-        // For MultiPolygon (most locations), extract all points
+        // For MultiPolygon, find the largest polygon (most likely the main boundary)
         if (
           locationResult.geometry_type === "MultiPolygon" &&
           Array.isArray(parsedCoordinates) &&
           parsedCoordinates.length > 0
         ) {
-          // Extract all coordinates from the first polygon's outer ring
+          // Find the polygon with the most points (likely the main boundary)
+          let largestPolygonIndex = 0;
+          let maxPointCount = 0;
+
+          // Loop through all polygons to find the one with the most points
+          for (let i = 0; i < parsedCoordinates.length; i++) {
+            if (
+              Array.isArray(parsedCoordinates[i]) &&
+              parsedCoordinates[i].length > 0 &&
+              Array.isArray(parsedCoordinates[i][0])
+            ) {
+              const pointCount = parsedCoordinates[i][0].length;
+              console.log(`Polygon ${i} has ${pointCount} points`);
+
+              if (pointCount > maxPointCount) {
+                maxPointCount = pointCount;
+                largestPolygonIndex = i;
+              }
+            }
+          }
+
+          console.log(
+            `Using largest polygon at index ${largestPolygonIndex} with ${maxPointCount} points`
+          );
+
+          // Extract all coordinates from the largest polygon's outer ring
           const flatCoordinates: number[] = [];
-          const polygonRing = parsedCoordinates[0][0]; // First polygon, outer ring
+          const polygonRing = parsedCoordinates[largestPolygonIndex][0]; // Largest polygon, outer ring
 
           if (Array.isArray(polygonRing) && polygonRing.length > 0) {
             // Convert from [lng, lat] to [lat, lng] format for Typesense
@@ -328,18 +418,22 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
             }
 
             // Ensure polygon is closed
-            if (
+            const isClosed =
               flatCoordinates.length >= 4 &&
-              (flatCoordinates[0] !==
-                flatCoordinates[flatCoordinates.length - 2] ||
-                flatCoordinates[1] !==
-                  flatCoordinates[flatCoordinates.length - 1])
-            ) {
+              flatCoordinates[0] ===
+                flatCoordinates[flatCoordinates.length - 2] &&
+              flatCoordinates[1] ===
+                flatCoordinates[flatCoordinates.length - 1];
+
+            if (!isClosed) {
+              console.warn(
+                "Raw polygon is not closed. Adding first point to close the polygon."
+              );
               flatCoordinates.push(flatCoordinates[0], flatCoordinates[1]);
             }
 
             console.log(
-              `Using raw coordinates with ${flatCoordinates.length / 2} points`
+              `Using ${flatCoordinates.length / 2} points from largest polygon`
             );
             setPolygonCoordinates(flatCoordinates);
             return;
@@ -385,12 +479,15 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
     setUsingSampleData(false);
 
     try {
-      const response = await fetch("/api/properties/search-in-polygon", {
+      const response = await fetch("/api/properties/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ coordinates }),
+        body: JSON.stringify({
+          coordinates,
+          query: "*", // Default query to match all documents
+        }),
       });
 
       if (!response.ok) {
@@ -404,12 +501,18 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         if (data.properties && Array.isArray(data.properties)) {
           setProperties(data.properties);
           setUsingSampleData(!!data.usingSampleData);
+          console.log(
+            `Found ${data.properties.length} properties in polygon (${
+              data.points || coordinates.length / 2
+            } points)`
+          );
         } else {
           setProperties([]);
+          console.log("No properties found in polygon");
         }
       }
     } catch (error) {
-      console.error("Error fetching properties inside polygon:", error);
+      console.error("Error fetching properties:", error);
       handleFetchError(coordinates);
     } finally {
       if (isMounted) {
@@ -456,7 +559,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
 
       console.log("Fetching properties around point:", requestBody);
 
-      const response = await fetch("/api/properties/search-in-polygon", {
+      const response = await fetch("/api/properties/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -486,24 +589,21 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
       try {
         const [lat, lng] = center;
 
-        const sampleResponse = await fetch(
-          "/api/properties/search-in-polygon",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              coordinates_json: JSON.stringify({
-                type: "Point",
-                coordinates: [lng, lat],
-              }),
-              geometry_type: "Point",
-              radius,
-              useSampleData: true,
+        const sampleResponse = await fetch("/api/properties/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coordinates_json: JSON.stringify({
+              type: "Point",
+              coordinates: [lng, lat],
             }),
-          }
-        );
+            geometry_type: "Point",
+            radius,
+            useSampleData: true,
+          }),
+        });
 
         if (sampleResponse.ok) {
           const sampleData = await sampleResponse.json();
@@ -512,8 +612,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
           setProperties([]);
         }
         setUsingSampleData(true);
-      } catch (error) {
-        console.error("Error fetching sample data for point:", error);
+      } catch (sampleError) {
+        console.error("Error fetching sample data for point:", sampleError);
         setProperties([]);
         setUsingSampleData(false);
       }
@@ -528,7 +628,7 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
   const handleFetchError = async (coordinates: number[]) => {
     // Use sample data if fetch fails, but only if component is still mounted
     try {
-      const sampleResponse = await fetch("/api/properties/search-in-polygon", {
+      const sampleResponse = await fetch("/api/properties/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -546,8 +646,8 @@ const MapWidget = ({ locationResult }: MapWidgetProps) => {
         setProperties([]);
       }
       setUsingSampleData(true);
-    } catch (sampleError) {
-      console.error("Error fetching sample data:", sampleError);
+    } catch (error) {
+      console.error("Error fetching sample data:", error);
       setProperties([]);
       setUsingSampleData(false);
     }
