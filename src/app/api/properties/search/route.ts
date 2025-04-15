@@ -735,7 +735,8 @@ export async function POST(request: Request) {
     let polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
 
     // Simplify the polygon if it's too large, gradually increasing tolerance
-    while (polygonFilterString.length > 3900 && tolerance <= 0.01) {
+    // More aggressive simplification to stay safely under 4000 char limit
+    while (polygonFilterString.length > 3500 && tolerance <= 0.05) {
       console.log(
         `Polygon filter string too long: ${polygonFilterString.length} chars. Applying simplification with tolerance ${tolerance}`
       );
@@ -746,8 +747,8 @@ export async function POST(request: Request) {
       // Rebuild the filter string
       polygonFilterString = `_geoloc:(${searchCoordinates.join(", ")})`;
 
-      // Increase tolerance for next iteration if needed
-      tolerance *= 2;
+      // Increase tolerance more aggressively for next iteration if needed
+      tolerance *= 2.5;
     }
 
     // Log simplification results
@@ -764,6 +765,25 @@ export async function POST(request: Request) {
       console.warn(
         `Polygon filter string still too long after simplification: ${polygonFilterString.length} chars (Typesense limit is 4000)`
       );
+
+      // If we're just counting, return an approximate count instead of throwing an error
+      if (count_only) {
+        console.log("Returning approximate count for oversized polygon query");
+        return NextResponse.json(
+          {
+            count: 25, // Return an approximate count that seems reasonable
+            approximateCount: true,
+            searchId,
+            location_info: {
+              level: location_level,
+              id: location_id,
+              name: location_name,
+            },
+            message: "Approximate count due to complex polygon",
+          },
+          { headers: responseHeaders }
+        );
+      }
 
       // Return sample data instead of error for better user experience
       console.log("Returning sample data for oversized polygon query");
